@@ -10,7 +10,7 @@ on:
 jobs:
   hunt-jobs:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: 📥 Checkout code
@@ -49,6 +49,7 @@ jobs:
 
       - name: 🚀 Run pipeline
         env:
+          PYTHONUNBUFFERED: "1"
           GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
