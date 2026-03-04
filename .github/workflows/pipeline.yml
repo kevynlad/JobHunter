@@ -39,13 +39,13 @@ jobs:
             mkdir -p data
           fi
 
-      - name: 📚 Restore ChromaDB
+      - name: 🔒 Prepare secure RAG documents
         run: |
-          if [ -d data/chroma_db ]; then
-            echo "ChromaDB exists"
-          else
-            echo "ChromaDB not found — RAG scoring will use title-only mode"
-          fi
+          mkdir -p data/career
+          echo "${{ secrets.MASTER_PROFILE }}" > "data/career/MASTER_PROFILE.md"
+          
+      - name: 🧠 Build vector database (ChromaDB)
+        run: python -m src.rag.ingest
 
       - name: 🚀 Run pipeline
         env:
