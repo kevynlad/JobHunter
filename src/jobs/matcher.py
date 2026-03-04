@@ -175,6 +175,17 @@ def search_and_match(min_score: float = 0) -> list[ScoredJob]:
         text_to_score = job.description if job.description else job.title
         result = score_job(text_to_score)
         
+        # FIX FOR MISSING DESCRIPTIONS:
+        # If JobSpy fails to get the description, RAG scores just the title.
+        # This naturally results in a very low distance score (~20%) and the job is dropped.
+        # If we have no description but the title is good, force it past the RAG filter.
+        if not job.description:
+            title_lw = job.title.lower()
+            strong_keywords = ["product", "ops", "analyst", "analista", "dados", "business", "data", "revenue", "bi", "intelligence"]
+            if any(k in title_lw for k in strong_keywords):
+                result["score"] = max(result["score"], 45.0)
+                result["interpretation"] = "🟠 Title Match (Missing desc)"
+        
         career_path_name = job_career_path.get(job.id, "Unknown")
         
         scored = ScoredJob(
