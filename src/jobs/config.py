@@ -89,5 +89,5 @@ def is_sp_metro_area(location: str) -> bool:
 MAX_DAYS_OLD = 7
 
 # ----- RESULTS SETTINGS -----
-RESULTS_PER_QUERY = 25
+RESULTS_PER_QUERY = 100
 MIN_MATCH_SCORE = 0
