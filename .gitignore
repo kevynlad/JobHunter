@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.venv/
+venv/
+
+# ChromaDB data (generated, can be re-created with 'jobhunter ingest')
+data/chroma_db/
+
+# Personal data (career docs, job tracker DB)
+data/career/
+data/jobs.db
+career_summary.txt
+*.resolved
+\# MASTER PROFILE*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Generated output
+output/
