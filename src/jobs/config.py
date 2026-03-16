@@ -26,8 +26,9 @@ CAREER_PATHS = [
         "queries": [
             "Product Operations",
             "Product Ops",
-            "CX Ops",
-            "Analista de Operações"
+            "Operations Analyst",
+            "Analista de Operações",
+            "Revenue Operations"
         ],
     },
 ]

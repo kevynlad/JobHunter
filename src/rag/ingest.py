@@ -70,10 +70,10 @@ EMBEDDING_MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
 COLLECTION_NAME = "career_profile"
 
 # How big each text chunk should be (in characters)
-CHUNK_SIZE = 1000
+CHUNK_SIZE = 500
 
 # How much overlap between chunks (so we don't cut sentences in half)
-CHUNK_OVERLAP = 300
+CHUNK_OVERLAP = 150
 
 
 def read_pdf(file_path: Path) -> str:

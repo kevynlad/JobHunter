@@ -185,10 +185,10 @@ Location: {location}
 Description: {desc_truncated}
 
 DIRETRIZES DE PENSAMENTO:
-1. Alinhamento de Cargo: É uma vaga de Analista (Dados, Negócios, Produto, Ops)? Se sim, é um ótimo alvo.
+1. Alinhamento de Cargo: É uma vaga de Analista (Dados, Negócios, Produto, Ops) ou de Product/Revenue Operations? Se sim, é um ótimo alvo. Valorize IGUALMENTE vagas de Product Ops e Data Analyst.
 2. Filtro de Gestão: A vaga é para Manager, Coordenador, Head ou Diretor? Se sim, marque como SKIP ou dê nota baixa, pois está além do momento atual.
-3. Fit Técnico: A vaga pede habilidades que o candidato já domina e usa para gerar impacto (SQL, Python, Dados, Dashboards)?
-4. Veredito: Seja encorajador mas realista. Valorize vagas de Business Analyst e Data Analyst onde as automações e o perfil data-driven do candidato o farão se destacar.
+3. Fit Técnico: A vaga pede habilidades do candidato? Considere TANTO habilidades técnicas (SQL, Python, Dashboards) QUANTO habilidades de produto/ops (priorização, stakeholders, jornada do usuário, processos).
+4. Veredito: Seja encorajador mas realista. O candidato se destaca tanto como bridge entre Produto e Engenharia (Product Ops) quanto como Analista de Dados com impacto em negócio.
 
 Respond ONLY with JSON (no markdown):
 {{
