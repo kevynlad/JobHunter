@@ -43,6 +43,7 @@ jobs:
         run: |
           mkdir -p data/career
           echo "${{ secrets.MASTER_PROFILE }}" > "data/career/MASTER_PROFILE.md"
+          echo "${{ secrets.PRODUCT_OPS_PROFILE }}" > "data/career/product_ops_competencies.md"
           
       - name: 🧠 Build vector database (ChromaDB)
         run: python -m src.rag.ingest
