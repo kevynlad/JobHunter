@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set! Check your .env file.")
 
