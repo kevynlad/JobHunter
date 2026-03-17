@@ -216,7 +216,11 @@ def _format_telegram_message_from_db(jobs: list[dict], total: int = 0) -> str:
         
         fit = j.get("fit_reason", "")
         if fit:
-            lines.append(f"💡 {fit[:200]}...")
+            lines.append(f"💡 {fit}")
+        
+        red_flags = j.get("red_flags", "")
+        if red_flags and red_flags.lower() != "none":
+            lines.append(f"⚠️ {red_flags}")
         
         url = j.get("url", "")
         if url:
