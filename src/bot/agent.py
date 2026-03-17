@@ -73,14 +73,22 @@ class CareerAgent:
         self._setup_model()
 
     def _setup_model(self):
-        """Initialize the Gemini client and chat session."""
-        api_keys = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", ""))
-        key = api_keys.split(",")[0].strip() if "," in api_keys else api_keys.strip()
+        """Initialize chat session system prompt and state."""
+        self.api_keys = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", "")).split(",")
+        self.api_keys = [k.strip() for k in self.api_keys if k.strip()]
+        self.current_key_idx = 0
+        
+        if not self.api_keys:
+            raise ValueError("Nenhuma GEMINI_API_KEY encontrada.")
 
-        self.client = genai.Client(api_key=key)
         career_profile = _load_career_profile()
         self.system = SYSTEM_PROMPT.format(career_profile=career_profile)
         self.history = []  # list of types.Content objects
+        self._get_client()
+
+    def _get_client(self):
+        key = self.api_keys[self.current_key_idx]
+        self.client = genai.Client(api_key=key)
 
     def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         """Execute a Function Calling tool and return the result."""
@@ -94,9 +102,9 @@ class CareerAgent:
 
     async def chat_async(self, user_message: str) -> str:
         """
-        Send a message and get a response, handling multi-step Function Calling.
+        Send a message and get a response, handling multi-step Function Calling
+        and rotating API keys if rate limit is exceeded.
         """
-        # Build tool config from declarations
         tools = [types.Tool(function_declarations=[
             types.FunctionDeclaration(**d) for d in TOOL_DECLARATIONS
         ])]
@@ -105,49 +113,69 @@ class CareerAgent:
             tools=tools,
         )
 
-        # Add user message to history
         self.history.append(types.Content(
             role="user",
             parts=[types.Part.from_text(text=user_message)]
         ))
 
-        try:
-            # Agentic loop
-            while True:
-                response = await self.client.aio.models.generate_content(
-                    model="gemini-2.0-flash",
-                    contents=self.history,
-                    config=config,
-                )
-                candidate = response.candidates[0].content
-                self.history.append(candidate)
+        max_attempts = len(self.api_keys) * 2  # Allow cycling through all keys twice
+        attempt = 0
 
-                # Check for function calls
-                tool_calls = [
-                    p.function_call for p in candidate.parts
-                    if p.function_call is not None
-                ]
+        while attempt < max_attempts:
+            attempt += 1
+            try:
+                # Agentic loop
+                while True:
+                    response = await self.client.aio.models.generate_content(
+                        model="gemini-2.0-flash",
+                        contents=self.history,
+                        config=config,
+                    )
+                    candidate = response.candidates[0].content
+                    self.history.append(candidate)
 
-                if not tool_calls:
-                    # Final text response
-                    return response.text
+                    # Check for function calls
+                    tool_calls = [
+                        p.function_call for p in candidate.parts
+                        if p.function_call is not None
+                    ]
 
-                # Execute tools and feed results back
-                tool_parts = []
-                for call in tool_calls:
-                    result = self._execute_tool(call.name, dict(call.args))
-                    tool_parts.append(types.Part.from_function_response(
-                        name=call.name,
-                        response={"result": result},
+                    if not tool_calls:
+                        return response.text
+
+                    # Execute tools and feed results back
+                    tool_parts = []
+                    for call in tool_calls:
+                        result = self._execute_tool(call.name, dict(call.args))
+                        tool_parts.append(types.Part.from_function_response(
+                            name=call.name,
+                            response={"result": result},
+                        ))
+
+                    self.history.append(types.Content(
+                        role="tool",
+                        parts=tool_parts,
                     ))
 
-                self.history.append(types.Content(
-                    role="tool",
-                    parts=tool_parts,
-                ))
-
-        except Exception as e:
-            return f"❌ Erro no agente: {e}"
+            except Exception as e:
+                error_str = str(e)
+                # Check for rate limit error
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    # Rotate key and try again
+                    self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
+                    self._get_client()
+                    print(f"⚠️ [Agent] Limite excedido. Trocando para API key {self.current_key_idx + 1}/{len(self.api_keys)}... Tentativa {attempt}")
+                    
+                    # If we failed mid-tool call loop, the history might be out of sync.
+                    # We pop the last 'user' or 'tool' message from history and retry to keep it clean.
+                    # But if we were deep in a tool loop, it's safer to pop until the last user message.
+                    while self.history and self.history[-1].role != "user":
+                         self.history.pop()
+                    continue
+                else:
+                    return f"❌ Erro no agente: {e}"
+        
+        return "❌ Erro no agente: Cota excedida em todas as chaves disponíveis. Tente novamente em alguns minutos."
 
 
 # Global registry of agents per user (in-memory, resets on restart)
