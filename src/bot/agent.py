@@ -108,7 +108,7 @@ class CareerAgent:
         # Add user message to history
         self.history.append(types.Content(
             role="user",
-            parts=[types.Part.from_text(user_message)]
+            parts=[types.Part.from_text(text=user_message)]
         ))
 
         try:
