@@ -71,7 +71,7 @@ class JobSpySource:
         
         try:
             jobs_df = scrape_jobs(
-                site_name=["linkedin", "indeed"],
+                site_name=["linkedin", "google"],   # removed indeed (low BR coverage), added google
                 search_term=query,
                 location=location,
                 results_wanted=limit,
@@ -79,6 +79,7 @@ class JobSpySource:
                 country_linkedin="brazil",
                 is_remote=remote_only,
                 linkedin_fetch_description=True,  # Fetch full job description from LinkedIn
+                google_search_term=f"{query} site:linkedin.com/jobs OR site:gupy.io OR site:vagas.com.br",
             )
             
             if jobs_df.empty:

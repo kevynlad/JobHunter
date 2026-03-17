@@ -174,8 +174,12 @@ def _format_telegram_message(scored_jobs: list, total: int = 0) -> str:
         if sj.red_flags and sj.red_flags != "None":
             lines.append(f"⚠️ {sj.red_flags}")
         
+        # Warn user when description was not available (LinkedIn blocking)
+        if not job.description or len(job.description.strip()) < 50:
+            lines.append("🔍 <i>Descrição não disponível — confira o link antes de aplicar</i>")
+        
         if job.url:
-            lines.append(f"🔗 <a href=\"{job.url}\">Aplicar</a>")
+            lines.append(f"🔗 <a href=\"{job.url}\">👉 Ver vaga completa</a>")
         
         lines.append("")
     
@@ -222,9 +226,14 @@ def _format_telegram_message_from_db(jobs: list[dict], total: int = 0) -> str:
         if red_flags and red_flags.lower() != "none":
             lines.append(f"⚠️ {red_flags}")
         
+        # Warn user when description was not available (LinkedIn blocking)
+        desc = j.get("description", "") or ""
+        if len(desc.strip()) < 50:
+            lines.append("🔍 <i>Descrição não disponível — confira o link antes de aplicar</i>")
+        
         url = j.get("url", "")
         if url:
-            lines.append(f'🔗 <a href="{url}">Aplicar</a>')
+            lines.append(f'🔗 <a href="{url}">👉 Ver vaga completa</a>')
         
         lines.append("")
     
