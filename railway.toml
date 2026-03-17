@@ -1,5 +1,8 @@
 [build]
 builder = "nixpacks"
+# Install only the bot dependencies — keeps the image under 500MB
+# The heavy pipeline stack (PyTorch, ChromaDB, etc.) is NOT needed by the bot
+installCmd = "pip install -r requirements-bot.txt"
 
 [deploy]
 startCommand = "python -m src.bot.main"
