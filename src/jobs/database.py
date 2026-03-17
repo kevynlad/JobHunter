@@ -56,13 +56,30 @@ def init_db():
             last_seen    TEXT NOT NULL,
             notified_at  TEXT DEFAULT '',
             applied_at   TEXT DEFAULT '',
-            notes        TEXT DEFAULT ''
+            notes        TEXT DEFAULT '',
+
+            -- Generated documents (stored as binary PDF or text)
+            cover_letter_text TEXT DEFAULT '',
+            cover_letter_pdf  BLOB DEFAULT NULL,
+            cv_pdf            BLOB DEFAULT NULL
         );
         
         CREATE INDEX IF NOT EXISTS idx_status ON jobs(status);
         CREATE INDEX IF NOT EXISTS idx_llm_score ON jobs(llm_score);
         CREATE INDEX IF NOT EXISTS idx_first_seen ON jobs(first_seen);
     """)
+    # Migration: add columns to existing databases that don't have them yet
+    existing_cols = {
+        row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+    }
+    migrations = {
+        "cover_letter_text": "ALTER TABLE jobs ADD COLUMN cover_letter_text TEXT DEFAULT ''",
+        "cover_letter_pdf":  "ALTER TABLE jobs ADD COLUMN cover_letter_pdf BLOB DEFAULT NULL",
+        "cv_pdf":            "ALTER TABLE jobs ADD COLUMN cv_pdf BLOB DEFAULT NULL",
+    }
+    for col, sql in migrations.items():
+        if col not in existing_cols:
+            conn.execute(sql)
     conn.commit()
     conn.close()
 

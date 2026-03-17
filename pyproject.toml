@@ -30,6 +30,11 @@ dependencies = [
 
     # --- General ---
     "python-dotenv",            # Loads settings from .env file
+
+    # --- CareerBot Agent ---
+    "python-telegram-bot[job-queue]>=21.0",  # Async Telegram bot with scheduler
+    "google-generativeai",      # Gemini SDK with Function Calling + Context Caching
+    "reportlab",                # PDF generation for CV and cover letters
 ]
 
 [project.optional-dependencies]
