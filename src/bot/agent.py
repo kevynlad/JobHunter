@@ -123,38 +123,36 @@ class CareerAgent:
             parts=[types.Part.from_text(text=user_message)]
         ))
 
-        max_attempts = len(self.api_keys)  # one try per key, no aggressive cycling
+        max_attempts = len(self.api_keys)  # one try per key
         attempt = 0
 
         while attempt < max_attempts:
             attempt += 1
+            key_label = f"key {self.current_key_idx + 1}/{len(self.api_keys)}"
             try:
-                # Agentic loop — hard limit to prevent infinite loops (quota drain)
+                # Agentic loop — hard cap at 5 tool steps to prevent quota drain
                 step_count = 0
                 max_steps = 5
 
                 while step_count < max_steps:
                     step_count += 1
-                    
+
                     response = await self.client.aio.models.generate_content(
-                        model="gemini-2.0-flash-lite",
+                        model="gemini-2.0-flash",
                         contents=self.history,
                         config=config,
                     )
                     candidate = response.candidates[0].content
                     self.history.append(candidate)
 
-                    # Check for function calls
                     tool_calls = [
                         p.function_call for p in candidate.parts
                         if p.function_call is not None
                     ]
 
-                    # If no tools called, or we reached max steps, return text
                     if not tool_calls or step_count >= max_steps:
                         return response.text
 
-                    # Execute tools and feed results back
                     tool_parts = []
                     for call in tool_calls:
                         result = self._execute_tool(call.name, dict(call.args))
@@ -170,23 +168,29 @@ class CareerAgent:
 
             except Exception as e:
                 error_str = str(e)
-                # Check for rate limit error
+                # Log full error so Railway logs show the real cause
+                print(f"⚠️ [Agent] {key_label} error: {error_str[:300]}")
+
                 if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                    # Rotate key and try again
+                    # Rotate to the next key
                     self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
                     self._get_client()
-                    print(f"⚠️ [Agent] Limite excedido. Trocando para API key {self.current_key_idx + 1}/{len(self.api_keys)}... Tentativa {attempt}")
-                    
-                    # If we failed mid-tool call loop, the history might be out of sync.
-                    # We pop the last 'user' or 'tool' message from history and retry to keep it clean.
-                    # But if we were deep in a tool loop, it's safer to pop until the last user message.
-                    while self.history and self.history[-1].role != "user":
-                         self.history.pop()
+                    # Clean history: remove everything added in this failed attempt
+                    # (pop back past the user message, then re-add it)
+                    while self.history:
+                        popped = self.history.pop()
+                        if popped.role == "user":
+                            break
+                    self.history.append(types.Content(
+                        role="user",
+                        parts=[types.Part.from_text(text=user_message)]
+                    ))
                     continue
                 else:
-                    return f"❌ Erro no agente: {e}"
-        
-        return "❌ Erro no agente: Cota excedida em todas as chaves disponíveis. Tente novamente em alguns minutos."
+                    # Non-quota error: surface it directly
+                    return f"❌ Erro no agente: {error_str[:200]}"
+
+        return "❌ Cota excedida em todas as chaves. Tente em alguns minutos."
 
 
 # Global registry of agents per user (in-memory, resets on restart)
