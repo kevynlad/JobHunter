@@ -25,7 +25,7 @@ DB_PATH = Path(__file__).parent.parent.parent / "data" / "jobs.db"
 
 
 def _load_career_profile() -> str:
-    """Load all career documents as a single string for the system prompt."""
+    """Load career profile trimmed to 2000 chars to save tokens on every request."""
     parts = []
     if CAREER_PATH.exists():
         for f in CAREER_PATH.iterdir():
@@ -36,7 +36,12 @@ def _load_career_profile() -> str:
         profile = os.getenv("MASTER_PROFILE", "")
         if profile:
             parts.append(profile)
-    return "\n\n---\n\n".join(parts) if parts else "Perfil de carreira não disponível."
+    full_profile = "\n\n---\n\n".join(parts) if parts else "Perfil de carreira não disponível."
+    # Trim to 2000 chars to avoid burning free-tier token quota on every request.
+    # The full profile is available via the RAG pipeline.
+    if len(full_profile) > 2000:
+        full_profile = full_profile[:2000] + "\n\n[... perfil truncado | resumo disponível via ferramentas ...]"
+    return full_profile
 
 
 SYSTEM_PROMPT = """Você é o CareerBot, um assistente de carreira pessoal e proativo.
@@ -132,7 +137,7 @@ class CareerAgent:
                     step_count += 1
                     
                     response = await self.client.aio.models.generate_content(
-                        model="gemini-2.0-flash",
+                        model="gemini-1.5-flash",
                         contents=self.history,
                         config=config,
                     )
