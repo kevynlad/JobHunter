@@ -124,8 +124,13 @@ class CareerAgent:
         while attempt < max_attempts:
             attempt += 1
             try:
-                # Agentic loop
-                while True:
+                # Agentic loop — hard limit to prevent infinite loops (quota drain)
+                step_count = 0
+                max_steps = 5
+
+                while step_count < max_steps:
+                    step_count += 1
+                    
                     response = await self.client.aio.models.generate_content(
                         model="gemini-2.0-flash",
                         contents=self.history,
@@ -140,7 +145,8 @@ class CareerAgent:
                         if p.function_call is not None
                     ]
 
-                    if not tool_calls:
+                    # If no tools called, or we reached max steps, return text
+                    if not tool_calls or step_count >= max_steps:
                         return response.text
 
                     # Execute tools and feed results back
