@@ -24,7 +24,9 @@ from telegram.ext import (
 
 from src.bot.handlers import handle_message, handle_start, handle_callback
 from src.bot.triggers import setup_triggers
-from src.jobs.database import init_db
+from src.jobs.database import init_db, DB_PATH
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 load_dotenv()
 logging.basicConfig(
@@ -34,10 +36,52 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class SyncHandler(BaseHTTPRequestHandler):
+    """Zero-dependency HTTP server to receive DB syncs from the pipeline."""
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"CareerBot is running")
+        
+    def do_POST(self):
+        if self.path != '/sync':
+            self.send_response(404)
+            self.end_headers()
+            return
+            
+        token = self.headers.get('Authorization')
+        expected = os.getenv('SYNC_TOKEN')
+        if not expected or token != f"Bearer {expected}":
+            self.send_response(401)
+            self.end_headers()
+            return
+            
+        length = int(self.headers.get('Content-Length', 0))
+        data = self.rfile.read(length)
+        
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(DB_PATH, "wb") as f:
+            f.write(data)
+            
+        logger.info(f"✅ Received synchronized jobs.db ({len(data)} bytes)")
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(f"Synced {len(data)} bytes".encode())
+
+def run_sync_server():
+    port = int(os.getenv("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), SyncHandler)
+    logger.info(f"🌐 HTTP Sync Server running on port {port}")
+    server.serve_forever()
+
+
 def main():
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set! Check your .env file.")
+
+    # Start the HTTP server in a background thread for Railway healthcheck + DB syncing
+    threading.Thread(target=run_sync_server, daemon=True).start()
 
     # Ensure DB is initialized with the updated schema
     init_db()

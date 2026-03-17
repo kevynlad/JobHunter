@@ -65,3 +65,19 @@ jobs:
           git add -f output/*.csv || true
           git diff --cached --quiet || git commit -m "chore: update jobs.db and CSV [skip ci]"
           git push || true
+
+      - name: 🌐 Sync database to Railway bot
+        env:
+          BOT_URL: ${{ secrets.BOT_URL }}
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          if [ -n "$BOT_URL" ] && [ -n "$SYNC_TOKEN" ] && [ -f data/jobs.db ]; then
+            echo "Syncing database to $BOT_URL..."
+            curl -X POST "$BOT_URL/sync" \
+                 -H "Authorization: Bearer $SYNC_TOKEN" \
+                 -H "Content-Length: $(stat -c%s data/jobs.db)" \
+                 --data-binary @data/jobs.db
+            echo -e "\nSync complete!"
+          else
+            echo "BOT_URL or SYNC_TOKEN not set, or database missing. Skipping sync."
+          fi
