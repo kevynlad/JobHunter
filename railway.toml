@@ -1,8 +1,8 @@
 [build]
 builder = "nixpacks"
-# Install only the bot dependencies — keeps the image under 500MB
-# The heavy pipeline stack (PyTorch, ChromaDB, etc.) is NOT needed by the bot
-installCmd = "pip install -r requirements-bot.txt"
+# Install the exact minimal bot packages directly. 
+# We inline them because Nixpacks hasn't copied requirements-bot.txt during the install phase.
+installCmd = "python -m venv /opt/venv && . /opt/venv/bin/activate && pip install python-telegram-bot[job-queue]>=21.0 google-genai>=1.0.0 reportlab>=4.0.0 httpx>=0.27.0 python-dotenv>=1.0.0"
 
 [deploy]
 startCommand = "python -m src.bot.main"
