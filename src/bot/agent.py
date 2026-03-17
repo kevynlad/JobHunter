@@ -123,7 +123,7 @@ class CareerAgent:
             parts=[types.Part.from_text(text=user_message)]
         ))
 
-        max_attempts = len(self.api_keys) * 2  # Allow cycling through all keys twice
+        max_attempts = len(self.api_keys)  # one try per key, no aggressive cycling
         attempt = 0
 
         while attempt < max_attempts:
@@ -137,7 +137,7 @@ class CareerAgent:
                     step_count += 1
                     
                     response = await self.client.aio.models.generate_content(
-                        model="gemini-1.5-flash",
+                        model="gemini-2.0-flash-lite",
                         contents=self.history,
                         config=config,
                     )
