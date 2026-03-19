@@ -20,9 +20,12 @@ Run scheduled:  python -m src.notify.scheduler
 
 import sys
 import os
+import logging
 from datetime import datetime
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 from src.jobs.matcher import search_and_match, print_results
 from src.jobs.classifier import classify_jobs_batch
@@ -58,18 +61,34 @@ def run_pipeline() -> dict:
         print("\n❌ No jobs found. Check internet/API key.")
         return {"total": 0, "good_matches": 0, "notified": False}
     
-    # --- Step 2: Pre-filter by RAG score (≥15%) ---
-    # We use a lower threshold here because the LLM will do the real filtering
+    # --- Step 2: Pre-filter by RAG score (≥SCORE_THRESHOLD%) ---
     rag_candidates = [sj for sj in all_scored if sj.score >= SCORE_THRESHOLD]
-    print(f"\n📊 RAG pre-filter: {len(all_scored)} → {len(rag_candidates)} candidates (≥{SCORE_THRESHOLD}%)")
+    logger.info(f"📊 RAG pre-filter: {len(all_scored)} → {len(rag_candidates)} candidates (≥{SCORE_THRESHOLD}%)")
     
-    if not rag_candidates:
-        print("No candidates passed RAG threshold.")
-        return {"total": len(all_scored), "good_matches": 0, "notified": False}
+    classified = []
+    good_matches = []
     
-    # --- Step 3: Classify with Gemini LLM ---
-    print("\n📌 Step 2: Deep analysis with Gemini AI...")
-    classified = classify_jobs_batch(rag_candidates)
+    if rag_candidates:
+        # --- Step 3: Classify with Gemini LLM ---
+        logger.info("\n📌 Step 2: Deep analysis with Gemini AI...")
+        classified = classify_jobs_batch(rag_candidates)
+        
+        # --- Step 4: Combined ranking ---
+        # Final score = 40% RAG + 60% LLM
+        for sj in classified:
+            sj.combined_score = (sj.score * 0.4) + (sj.llm_score * 0.6)
+        
+        # Only keep jobs where BOTH scores are decent
+        good_matches = [
+            sj for sj in classified
+            if sj.score >= SCORE_THRESHOLD and sj.llm_score >= LLM_SCORE_THRESHOLD
+            and sj.verdict != "SKIP"
+        ]
+        
+        # Sort by combined score
+        good_matches.sort(key=lambda sj: sj.combined_score, reverse=True)
+    else:
+        logger.info("No candidates passed RAG threshold.")
     
     # --- Step 4: Combined ranking ---
     # Final score = 40% RAG + 60% LLM (LLM is smarter, weight it more)
@@ -122,25 +141,25 @@ def run_pipeline() -> dict:
             print("✅ Telegram sent with interactive buttons!")
         else:
             print("❌ Telegram failed")
-    else:
-        print(f"\n⏭️ No new (unnotified) jobs to send.")
-        
-    # Send a pipeline summary message to keep user informed of rejected jobs
+    # Send a pipeline summary message to keep user informed 
     summary_lines = [
         f"🤖 <b>Pipeline Finalizado ({len(all_scored)} coletadas)</b>",
         f"🧠 Avançaram pro LLM (RAG ≥ {SCORE_THRESHOLD}%): <b>{len(rag_candidates)}</b>",
         f"✅ Aprovadas (LLM ≥ {LLM_SCORE_THRESHOLD}%): <b>{len(good_matches)}</b>\n",
     ]
     
-    rejected_jobs = [sj for sj in classified if sj.verdict == "SKIP" or sj.llm_score < LLM_SCORE_THRESHOLD]
-    if rejected_jobs:
-        summary_lines.append("🗑️ <b>Principais rejeições da IA:</b>")
-        for sj in rejected_jobs[:8]:  # show top 8 reasons
-            reason = str(sj.red_flags) if sj.red_flags and sj.red_flags != "None" else str(sj.fit_reason)
-            summary_lines.append(f"• <b>{sj.job.company}</b>: <i>{reason[:70]}...</i>")
-            
-        if len(rejected_jobs) > 8:
-            summary_lines.append(f"<i>... e mais {len(rejected_jobs) - 8} vagas filtradas.</i>")
+    if rag_candidates:
+        rejected_jobs = [sj for sj in classified if sj.verdict == "SKIP" or sj.llm_score < LLM_SCORE_THRESHOLD]
+        if rejected_jobs:
+            summary_lines.append("🗑️ <b>Principais rejeições da IA:</b>")
+            for sj in rejected_jobs[:8]:  # show top 8 reasons
+                reason = str(sj.red_flags) if sj.red_flags and sj.red_flags != "None" else str(sj.fit_reason)
+                summary_lines.append(f"• <b>{sj.job.company}</b>: <i>{reason[:70]}...</i>")
+                
+            if len(rejected_jobs) > 8:
+                summary_lines.append(f"<i>... e mais {len(rejected_jobs) - 8} vagas filtradas.</i>")
+    else:
+        summary_lines.append("⚠️ Nenhuma vaga passou no filtro de afinidade inicial (RAG).")
             
     summary_lines.append("\n💾 <i>Lembrete: TODAS as vagas foram salvas no /stats</i>")
     send_telegram_message("\n".join(summary_lines))
