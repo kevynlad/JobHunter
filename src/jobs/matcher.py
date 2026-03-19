@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 from src.jobs.models import JobPosting, ScoredJob, SearchFilters
 from src.jobs.sources import get_all_sources
 from src.jobs.config import CAREER_PATHS, LOCATIONS, INCLUDE_REMOTE, MAX_DAYS_OLD, RESULTS_PER_QUERY, MIN_MATCH_SCORE
-from src.rag.retriever import score_job
+from src.rag.retriever import score_jobs_batch
 
 
 # Load environment variables
@@ -147,12 +147,12 @@ def search_and_match(min_score: float = 0) -> list[ScoredJob]:
                 job_career_path[job.id] = career_path["name"]
         all_jobs.extend(jobs)
     
-    # Global deduplication (a job might appear in multiple career paths)
+    # --- Step 3: Global deduplication ---
     unique_jobs = _deduplicate_jobs(all_jobs)
     print(f"\n{'=' * 60}")
     print(f"  Total unique jobs across all paths: {len(unique_jobs)}")
     
-    # --- SP Metropolitan Area filter ---
+    # --- Step 4: SP Metropolitan Area filter ---
     from src.jobs.config import is_sp_metro_area
     before_filter = len(unique_jobs)
     unique_jobs = [j for j in unique_jobs if is_sp_metro_area(j.location)]
@@ -165,40 +165,44 @@ def search_and_match(min_score: float = 0) -> list[ScoredJob]:
         print("\nNo jobs found in SP metro area! Try adjusting location settings.")
         return []
     
-    # Score each job against your career profile (RAG)
+    # --- Step 5: Score each job against your career profile (Batch RAG) ---
     with_desc = sum(1 for j in unique_jobs if j.description and j.description.strip())
     print(f"\n  📝 Descriptions: {with_desc}/{len(unique_jobs)} jobs have full text")
-    print(f"  🧠 Scoring {len(unique_jobs)} jobs against your career...")
-    scored_jobs: list[ScoredJob] = []
+    print(f"  🧠 Scoring {len(unique_jobs)} jobs against your career (Batch Mode)...")
     
-    for i, job in enumerate(unique_jobs):
-        text_to_score = job.description if job.description else job.title
-        result = score_job(text_to_score)
+    # Prepare data for batch scoring
+    jobs_to_score = []
+    for job in unique_jobs:
+        text_to_score = job.description if job.description and job.description.strip() else job.title
+        jobs_to_score.append({"id": job.id, "text": text_to_score})
+    
+    # Call batch API
+    batch_results = score_jobs_batch(jobs_to_score)
+    batch_map = {res["id"]: res for res in batch_results}
+    
+    scored_jobs: list[ScoredJob] = []
+    for job in unique_jobs:
+        res = batch_map.get(job.id, {"score": 50, "interpretation": "⚪ RAG Skip"})
         
         # FIX FOR MISSING DESCRIPTIONS:
         # If JobSpy fails to get the description, RAG scores just the title.
-        # This naturally results in a very low distance score (~20%) and the job is dropped.
-        # If we have no description but the title is good, force it past the RAG filter.
-        if not job.description:
+        # If the title is good, force it past the RAG filter (min 45).
+        if not job.description or not job.description.strip():
             title_lw = job.title.lower()
             strong_keywords = ["product", "ops", "analyst", "analista", "dados", "business", "data", "revenue", "bi", "intelligence"]
             if any(k in title_lw for k in strong_keywords):
-                result["score"] = max(result["score"], 45.0)
-                result["interpretation"] = "🟠 Title Match (Missing desc)"
+                res["score"] = max(res["score"], 45.0)
+                res["interpretation"] = "🟠 Title Match (Missing desc)"
         
         career_path_name = job_career_path.get(job.id, "Unknown")
-        
         scored = ScoredJob(
             job=job,
-            score=result["score"],
-            interpretation=result["interpretation"],
-            top_matches=result.get("top_matches", []),
+            score=res["score"],
+            interpretation=res["interpretation"],
+            top_matches=[], # Batch mode skips top_matches for speed
             career_path=career_path_name,
         )
         scored_jobs.append(scored)
-        
-        if (i + 1) % 5 == 0 or (i + 1) == len(unique_jobs):
-            print(f"  Scored {i + 1}/{len(unique_jobs)}...")
     
     # Filter by minimum score
     effective_min = min_score if min_score > 0 else MIN_MATCH_SCORE
