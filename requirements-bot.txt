@@ -1,22 +1,27 @@
-# CareerBot — Minimal dependencies (bot only, no RAG/scraping stack)
-# This is used by Railway to keep the Docker image small (<500MB)
+# CareerBot — Dependencies (V2 - Gemini Embedding RAG)
+# Railway Docker image target: <200MB (was ~600MB)
 
 # Telegram bot (async, with job queue for triggers)
 python-telegram-bot[job-queue]>=21.0
 
-# Gemini AI (new SDK)
+# Gemini AI (new SDK) - used for chat, classification, AND embeddings
 google-genai>=1.0.0
 
 # PDF generation
 reportlab>=4.0.0
+
+# PDF/DOCX reading (for career document ingestion)
+pypdf>=4.0.0
+python-docx>=1.0.0
 
 # HTTP + env + Scraping
 httpx>=0.27.0
 python-dotenv>=1.0.0
 beautifulsoup4>=4.12.0
 
-# Pipeline Dependencies (Search + RAG)
-chromadb>=0.4.20
-sentence-transformers>=2.3.0
+# Pipeline Dependencies (Job Search)
 python-jobspy>=1.1.0
 pandas>=2.0.0
+
+# NOTE: chromadb and sentence-transformers REMOVED (were ~520MB)
+# RAG now uses Gemini text-embedding-004 API + JSON vector store (~50KB)
