@@ -113,6 +113,9 @@ def build_vector_db() -> dict:
     supported = {".pdf", ".docx", ".md", ".txt"}
     doc_files = [f for f in CAREER_DOCS_PATH.iterdir() if f.is_file() and f.suffix.lower() in supported]
 
+    all_chunks = []
+    all_meta = []
+
     if not doc_files:
         # Fallback: read career profile from Railway environment variables
         # This handles the case where the Volume is empty (no physical files)
@@ -133,22 +136,18 @@ def build_vector_db() -> dict:
         else:
             print(f"[!] No career documents and no MASTER_PROFILE env var found.")
             return {"status": "error", "message": "No career data — add files to data/career/ or set MASTER_PROFILE env var"}
-
-    print(f"📂 Found {len(doc_files)} career document(s). Building Gemini vector store...")
-
-    all_chunks = []
-    all_meta = []
-
-    for doc_file in doc_files:
-        print(f"  📄 {doc_file.name}")
-        text = read_document(doc_file)
-        if not text:
-            continue
-        chunks = split_into_chunks(text)
-        print(f"     → {len(chunks)} chunks")
-        for i, chunk in enumerate(chunks):
-            all_chunks.append(chunk)
-            all_meta.append({"source": doc_file.name, "chunk_idx": i})
+    else:
+        print(f"📂 Found {len(doc_files)} career document(s). Building Gemini vector store...")
+        for doc_file in doc_files:
+            print(f"  📄 {doc_file.name}")
+            text = read_document(doc_file)
+            if not text:
+                continue
+            chunks = split_into_chunks(text)
+            print(f"     → {len(chunks)} chunks")
+            for i, chunk in enumerate(chunks):
+                all_chunks.append(chunk)
+                all_meta.append({"source": doc_file.name, "chunk_idx": i})
 
     if not all_chunks:
         return {"status": "error", "message": "No text extracted from documents"}
