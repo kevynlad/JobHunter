@@ -30,6 +30,107 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _inline_keyboard(job_id: str) -> dict:
+    """Build the inline keyboard payload for a job card."""
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "✅ Quero Aplicar", "callback_data": f"apply:{job_id}"},
+                {"text": "📝 Cover Letter", "callback_data": f"cover:{job_id}"},
+            ],
+            [
+                {"text": "⏰ Lembrar em 3 dias", "callback_data": f"remind:{job_id}"},
+                {"text": "❌ Não interessa", "callback_data": f"skip:{job_id}"},
+            ],
+        ]
+    }
+
+
+def send_job_cards_with_buttons(jobs: list, total_analyzed: int = 0) -> bool:
+    """
+    Send one Telegram message per job card, each with action buttons.
+    This replaces the old bulk-text notification with interactive per-job cards.
+    
+    Args:
+        jobs: list of dicts with job_id, title, company, llm_score, rag_score,
+              verdict, fit_reason, url, seniority, company_tier
+        total_analyzed: total number of jobs scanned (for the header summary)
+    """
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+
+    if not token or not chat_id:
+        print("[!] Telegram: Missing BOT_TOKEN or CHAT_ID in .env")
+        return False
+
+    from datetime import datetime
+    now = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    # 1. Send a summary header first
+    count = len(jobs)
+    header = (
+        f"🎯 <b>JobHunter V2 — {count} vagas novas!</b>\n"
+        f"📅 {now} | 📊 {total_analyzed} analisadas\n\n"
+        f"Abaixo cada vaga com botões de ação 👇"
+    )
+    _raw_send(token, chat_id, header, keyboard=None)
+
+    # 2. Send one card per job with buttons
+    verdict_map = {"APPLY": "✅", "MAYBE": "🟡", "SKIP": "❌"}
+    tier_map = {"Large": "🏢", "Mid": "🏬", "Startup": "🚀"}
+
+    for i, j in enumerate(jobs):
+        job_id = j.get("job_id", j.get("id", ""))
+        v = verdict_map.get(j.get("verdict", ""), "❓")
+        tier = tier_map.get(j.get("company_tier", ""), "🏬")
+        seniority = j.get("seniority", "")
+        fit = j.get("fit_reason", "")
+        url = j.get("url", "")
+        red_flags = j.get("red_flags", "")
+
+        lines = [
+            f"{v} <b>#{i+1} — LLM: {j.get('llm_score', 0)}% | RAG: {j.get('rag_score', 0):.0f}%</b>",
+            f"💼 <b>{j.get('title', '')}</b>",
+            f"{tier} {j.get('company', '')} | 📍 {j.get('location', '')}",
+        ]
+        if seniority and seniority != "Unknown":
+            lines.append(f"📊 Nível: {seniority}")
+        if fit:
+            lines.append(f"💡 {fit[:200]}")
+        if red_flags and red_flags.lower() not in ("none", ""):
+            lines.append(f"⚠️ {red_flags[:100]}")
+        if url:
+            lines.append(f'🔗 <a href="{url}">Ver vaga completa</a>')
+
+        card_text = "\n".join(lines)
+        keyboard = _inline_keyboard(job_id) if job_id else None
+        _raw_send(token, chat_id, card_text, keyboard=keyboard)
+
+    return True
+
+
+def _raw_send(token: str, chat_id: str, text: str, keyboard: dict | None) -> bool:
+    """Send a single Telegram message, optionally with an inline keyboard."""
+    payload = {
+        "chat_id": chat_id,
+        "text": text[:4000],
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    if keyboard:
+        payload["reply_markup"] = keyboard
+    try:
+        r = httpx.post(f"https://api.telegram.org/bot{token}/sendMessage", json=payload, timeout=15)
+        data = r.json()
+        if not data.get("ok"):
+            print(f"[!] Telegram error: {data.get('description', 'Unknown')}")
+            return False
+        return True
+    except Exception as e:
+        print(f"[!] Telegram error: {e}")
+        return False
+
+
 def send_telegram_message(text: str, parse_mode: str = "HTML") -> bool:
     """
     Send a message to the user via Telegram.

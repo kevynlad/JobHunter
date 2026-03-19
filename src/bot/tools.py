@@ -14,6 +14,7 @@ from pathlib import Path
 
 from src.rag.retriever import score_job
 from src.jobs.classifier import classify_job
+from src.bot.key_router import get_key
 
 
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "jobs.db"
@@ -270,12 +271,8 @@ def learn_from_job(job_id: str) -> str:
             return json.dumps({"error": "Vaga sem descrição suficiente para aprender."})
             
         from google import genai
-        keys = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", "")).split(",")
-        keys = [k.strip() for k in keys if k.strip()]
-        if not keys:
-            return json.dumps({"error": "No API Keys found"})
-            
-        client = genai.Client(api_key=keys[0])
+        api_key = get_key("paid")  # Use paid key: this is a quality extraction task
+        client = genai.Client(api_key=api_key)
         prompt = f"Leia esta vaga:\nTítulo: {title}\nEmpresa: {company}\nDescrição: {desc[:4000]}\n\nListe apenas 3 a 5 habilidades (hard ou soft) ou palavras-chave estratégicas que parecem ser o diferencial desta vaga, as quais o usuário demonstrou interesse. Formate apenas como uma linha separada por vírgulas."
         
         response = client.models.generate_content(

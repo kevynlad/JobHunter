@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 from src.jobs.matcher import search_and_match, print_results
 from src.jobs.classifier import classify_jobs_batch
 from src.jobs.database import upsert_job, get_unnotified_jobs, mark_notified, make_job_id
-from src.notify.telegram import send_telegram_message
+from src.notify.telegram import send_telegram_message, send_job_cards_with_buttons
 
 
 # Load environment variables
@@ -113,13 +113,13 @@ def run_pipeline() -> dict:
         print(f"\n📱 Sending Telegram notification ({len(unnotified)} new matches)...")
         
         jobs_to_send = unnotified[:MAX_JOBS_IN_NOTIFICATION]
-        message = _format_telegram_message_from_db(jobs_to_send, total=len(all_scored))
         
-        success = send_telegram_message(message, parse_mode="HTML")
+        # V2: Send interactive per-job cards with inline buttons
+        success = send_job_cards_with_buttons(jobs_to_send, total_analyzed=len(all_scored))
         notified = success
         if success:
             mark_notified([j['job_id'] for j in unnotified])
-            print("✅ Telegram sent!")
+            print("✅ Telegram sent with interactive buttons!")
         else:
             print("❌ Telegram failed")
     else:
