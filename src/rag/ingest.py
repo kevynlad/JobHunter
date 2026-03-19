@@ -114,8 +114,25 @@ def build_vector_db() -> dict:
     doc_files = [f for f in CAREER_DOCS_PATH.iterdir() if f.is_file() and f.suffix.lower() in supported]
 
     if not doc_files:
-        print(f"[!] No career documents found in {CAREER_DOCS_PATH}")
-        return {"status": "error", "message": "No career documents found"}
+        # Fallback: read career profile from Railway environment variables
+        # This handles the case where the Volume is empty (no physical files)
+        master = os.getenv("MASTER_PROFILE", "").strip()
+        product_ops = os.getenv("PRODUCT_OPS_PROFILE", "").strip()
+
+        env_texts = [(master, "MASTER_PROFILE"), (product_ops, "PRODUCT_OPS_PROFILE")]
+        env_texts = [(t, src) for t, src in env_texts if t]
+
+        if env_texts:
+            print(f"📂 No files in {CAREER_DOCS_PATH} — using env vars as career corpus.")
+            for text, source in env_texts:
+                chunks = split_into_chunks(text)
+                print(f"  📋 {source} → {len(chunks)} chunks")
+                for i, chunk in enumerate(chunks):
+                    all_chunks.append(chunk)
+                    all_meta.append({"source": source, "chunk_idx": i})
+        else:
+            print(f"[!] No career documents and no MASTER_PROFILE env var found.")
+            return {"status": "error", "message": "No career data — add files to data/career/ or set MASTER_PROFILE env var"}
 
     print(f"📂 Found {len(doc_files)} career document(s). Building Gemini vector store...")
 
