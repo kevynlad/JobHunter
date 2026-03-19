@@ -22,7 +22,7 @@ load_dotenv()
 
 
 # Gemini API Configuration
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-flash-latest"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # Career summary — loaded from external file (gitignored) to protect personal data
