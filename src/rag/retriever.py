@@ -37,12 +37,21 @@ def _load_store() -> dict:
 
 
 def _embed_query(text: str) -> list[float]:
-    """Embed a single query text using Gemini API (free key)."""
-    from google import genai
+    """Embed a single query text using Gemini API (free key) via direct HTTP to v1."""
+    import httpx
     from src.bot.key_router import get_key
-    client = genai.Client(api_key=get_key("free"))
-    result = client.models.embed_content(model=EMBEDDING_MODEL, contents=text)
-    return result.embeddings[0].values
+    
+    api_key = get_key("free")
+    url = f"https://generativelanguage.googleapis.com/v1/models/{EMBEDDING_MODEL}:embedContent?key={api_key}"
+    
+    payload = {
+        "model": f"models/{EMBEDDING_MODEL}",
+        "content": {"parts": [{"text": text}]}
+    }
+    resp = httpx.post(url, json=payload, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["embedding"]["values"]
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
