@@ -128,6 +128,11 @@ class CareerAgent:
         max_attempts = len(self.api_keys)  # one try per key
         attempt = 0
 
+        # Sliding window: keep only last 20 messages to prevent token explosion
+        # Always keep the current user message (last element) and up to 19 history items
+        if len(self.history) > 20:
+            self.history = self.history[-20:]
+
         while attempt < max_attempts:
             attempt += 1
             key_label = f"key {self.current_key_idx + 1}/{len(self.api_keys)}"

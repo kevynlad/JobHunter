@@ -28,7 +28,6 @@ GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMI
 # Career summary — loaded from external file (gitignored) to protect personal data
 _SUMMARY_PATH = Path(__file__).parent.parent.parent / "career_summary.txt"
 _LEARNED_PREFS_PATH = Path(__file__).parent.parent.parent / "data" / "learned_preferences.md"
-_LEARNED_PREFS_PATH = Path(__file__).parent.parent.parent / "data" / "learned_preferences.md"
 
 def _load_career_summary() -> str:
     """Load career summary from external file."""
@@ -67,7 +66,9 @@ def _call_gemini(prompt: str, max_retries: int = 3) -> dict | None:
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
                         "temperature": 0.1,
-                        "maxOutputTokens": 2048,
+                        "maxOutputTokens": 512,          # JSON output is small (~200 tokens)
+                        "response_mime_type": "application/json",  # Structured output guarantee
+                        "thinkingConfig": {"thinkingBudget": 0}    # Disable thinking for speed
                     },
                 },
                 timeout=45,
