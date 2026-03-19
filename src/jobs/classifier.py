@@ -185,8 +185,8 @@ Location: {location}
 Description: {desc_truncated}
 
 DIRETRIZES DE PENSAMENTO:
-1. Alinhamento de Cargo: É uma vaga de Analista (Dados, Negócios, Produto, Ops) ou de Product/Revenue Operations? Se sim, é um ótimo alvo. Valorize IGUALMENTE vagas de Product Ops e Data Analyst.
-2. Filtro de Gestão: A vaga é para Manager, Coordenador, Head ou Diretor? Se sim, marque como SKIP ou dê nota baixa, pois está além do momento atual.
+1. Alinhamento de Cargo: É uma vaga de Analista (Dados, Produto, Negócios, Ops), Product Ops, Product Manager (PM) ou Product Owner (PO)? Se sim, é um ótimo alvo. Valorize IGUALMENTE essas áreas.
+2. Filtro de Gestão: A vaga é estritamente para gestão de pessoas (Engineering Manager, Head, Diretor)? Se sim, marque como SKIP. ATENÇÃO: 'Product Manager' e 'Product Owner' NÃO SÃO cargos de gestão de pessoas, são Individual Contributors (ICs). Portanto, para PM e PO, NÃO DÊ SKIP e avalie normalmente!
 3. Fit Técnico: A vaga pede habilidades do candidato? Considere TANTO habilidades técnicas (SQL, Python, Dashboards) QUANTO habilidades de produto/ops (priorização, stakeholders, jornada do usuário, processos).
 4. Veredito: Seja encorajador mas realista. O candidato se destaca tanto como bridge entre Produto e Engenharia (Product Ops) quanto como Analista de Dados com impacto em negócio.
 

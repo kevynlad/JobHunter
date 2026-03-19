@@ -31,6 +31,15 @@ CAREER_PATHS = [
             "Revenue Operations"
         ],
     },
+    {
+        "name": "Product Management",
+        "queries": [
+            "Product Manager",
+            "Associate Product Manager",
+            "Product Owner",
+            "Growth Analyst"
+        ],
+    },
 ]
 
 
