@@ -32,16 +32,22 @@ _SUMMARY_PATH = Path(__file__).parent.parent.parent / "career_summary.txt"
 _LEARNED_PREFS_PATH = Path(__file__).parent.parent.parent / "data" / "learned_preferences.md"
 
 def _load_career_summary() -> str:
-    """Load career summary from file, or fall back to MASTER_PROFILE env var."""
+    """Load career summary: file → CAREER_SUMMARY env var → MASTER_PROFILE env var."""
     if _SUMMARY_PATH.exists():
         return _SUMMARY_PATH.read_text(encoding="utf-8")
-    # Fallback: use MASTER_PROFILE env var (set in Railway when file is gitignored)
-    env_profile = os.getenv("MASTER_PROFILE", "").strip()
-    if env_profile:
-        print("[i] career_summary.txt not found — using MASTER_PROFILE env var.")
-        return env_profile
-    print(f"[!] career_summary.txt not found at {_SUMMARY_PATH}")
+    # Priority 1: dedicated CAREER_SUMMARY env var (set in Railway)
+    career_summary = os.getenv("CAREER_SUMMARY", "").strip()
+    if career_summary:
+        print("[i] Using CAREER_SUMMARY env var for classifier.")
+        return career_summary
+    # Priority 2: fall back to full MASTER_PROFILE
+    master = os.getenv("MASTER_PROFILE", "").strip()
+    if master:
+        print("[i] Using MASTER_PROFILE env var for classifier (no CAREER_SUMMARY set).")
+        return master
+    print(f"[!] career_summary.txt not found and no env vars set.")
     return "No career summary configured."
+
 
 CAREER_SUMMARY = _load_career_summary()
 
