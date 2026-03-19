@@ -48,137 +48,114 @@ def run_pipeline() -> dict:
     """
     🚀 Run the full JobHunter pipeline.
     """
-    print("=" * 60)
-    print(f"  🚀 JobHunter Pipeline")
-    print(f"  ⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=" * 60)
-    
-    # --- Step 1: Search + RAG Score ---
-    logger.info("\n📌 Step 1: Searching and RAG scoring jobs...")
     try:
-        all_scored = search_and_match(min_score=0)
-    except Exception as e:
-        logger.error(f"❌ search_and_match failed: {e}", exc_info=True)
+        logger.info("=" * 60)
+        logger.info(f"  🚀 JobHunter Pipeline")
+        logger.info(f"  ⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info("=" * 60)
+        
         all_scored = []
-    
-    if not all_scored:
-        logger.warning("\n❌ No jobs found or search failed.")
-        # We continue to the summary part to notify the user
         rag_candidates = []
-    else:
-        # --- Step 2: Pre-filter by RAG score (≥SCORE_THRESHOLD%) ---
-        rag_candidates = [sj for sj in all_scored if sj.score >= SCORE_THRESHOLD]
-        logger.info(f"📊 RAG pre-filter: {len(all_scored)} → {len(rag_candidates)} candidates (≥{SCORE_THRESHOLD}%)")
-    
-    classified = []
-    good_matches = []
-    
-    if rag_candidates:
-        # --- Step 3: Classify with Gemini LLM ---
-        logger.info("\n📌 Step 2: Deep analysis with Gemini AI...")
-        classified = classify_jobs_batch(rag_candidates)
+        classified = []
+        good_matches = []
+        notified = False
+
+        # --- Step 1: Search + RAG Score ---
+        logger.info("\n📌 Step 1: Searching and RAG scoring jobs...")
+        try:
+            all_scored = search_and_match(min_score=0)
+        except Exception as e:
+            logger.error(f"❌ search_and_match failed: {e}", exc_info=True)
+            all_scored = []
         
-        # --- Step 4: Combined ranking ---
-        # Final score = 40% RAG + 60% LLM
-        for sj in classified:
-            sj.combined_score = (sj.score * 0.4) + (sj.llm_score * 0.6)
+        if not all_scored:
+            logger.warning("\n❌ No jobs found or search failed.")
+        else:
+            # --- Step 2: Pre-filter by RAG score (≥SCORE_THRESHOLD%) ---
+            rag_candidates = [sj for sj in all_scored if sj.score >= SCORE_THRESHOLD]
+            logger.info(f"📊 RAG pre-filter: {len(all_scored)} → {len(rag_candidates)} candidates (≥{SCORE_THRESHOLD}%)")
+            
+            if rag_candidates:
+                # --- Step 3: Classify with Gemini LLM ---
+                logger.info("\n📌 Step 2: Deep analysis with Gemini AI...")
+                classified = classify_jobs_batch(rag_candidates)
+                
+                # --- Step 4: Combined ranking + Filtering ---
+                for sj in classified:
+                    sj.combined_score = (sj.score * 0.4) + (sj.llm_score * 0.6)
+                
+                good_matches = [
+                    sj for sj in classified
+                    if sj.score >= SCORE_THRESHOLD and sj.llm_score >= LLM_SCORE_THRESHOLD
+                    and sj.verdict != "SKIP"
+                ]
+                good_matches.sort(key=lambda sj: sj.combined_score, reverse=True)
+            else:
+                logger.info("No candidates passed RAG threshold.")
         
-        # Only keep jobs where BOTH scores are decent
-        good_matches = [
-            sj for sj in classified
-            if sj.score >= SCORE_THRESHOLD and sj.llm_score >= LLM_SCORE_THRESHOLD
-            and sj.verdict != "SKIP"
+        # --- Step 5: Save to SQLite ---
+        logger.info("\n💾 Saving results to database...")
+        new_count = 0
+        to_save = good_matches if good_matches else classified
+        for sj in to_save:
+            is_new = upsert_job(sj)
+            if is_new:
+                new_count += 1
+        logger.info(f"  Saved {len(to_save)} jobs ({new_count} new)")
+        
+        # --- Step 6: Notify via Telegram (only NEW matches) ---
+        unnotified = get_unnotified_jobs()
+        if unnotified:
+            logger.info(f"\n📱 Sending Telegram notification ({len(unnotified)} new matches)...")
+            jobs_to_send = unnotified[:MAX_JOBS_IN_NOTIFICATION]
+            success = send_job_cards_with_buttons(jobs_to_send, total_analyzed=len(all_scored))
+            notified = success
+            if success:
+                mark_notified([j['job_id'] for j in unnotified])
+                logger.info("✅ Telegram sent successfully")
+            else:
+                logger.error("❌ Telegram failed")
+        
+        # --- Step 7: Summary Report (Always Send) ---
+        summary_lines = [
+            f"🤖 <b>Pipeline Finalizado ({len(all_scored)} coletadas)</b>",
+            f"🧠 Avançaram pro LLM (RAG ≥ {SCORE_THRESHOLD}%): <b>{len(rag_candidates)}</b>",
+            f"✅ Aprovadas (LLM ≥ {LLM_SCORE_THRESHOLD}%): <b>{len(good_matches)}</b>\n",
         ]
         
-        # Sort by combined score
-        good_matches.sort(key=lambda sj: sj.combined_score, reverse=True)
-    else:
-        logger.info("No candidates passed RAG threshold.")
-    
-    # --- Step 4: Combined ranking ---
-    # Final score = 40% RAG + 60% LLM (LLM is smarter, weight it more)
-    for sj in classified:
-        sj.combined_score = (sj.score * 0.4) + (sj.llm_score * 0.6)
-    
-    # Only keep jobs where BOTH scores are decent
-    good_matches = [
-        sj for sj in classified
-        if sj.score >= SCORE_THRESHOLD and sj.llm_score >= LLM_SCORE_THRESHOLD
-        and sj.verdict != "SKIP"
-    ]
-    
-    # Sort by combined score
-    good_matches.sort(key=lambda sj: sj.combined_score, reverse=True)
-    
-    print(f"\n📊 Final Results:")
-    print(f"  Total searched: {len(all_scored)}")
-    print(f"  RAG candidates: {len(rag_candidates)}")
-    print(f"  Good matches (RAG≥{SCORE_THRESHOLD}% + LLM≥{LLM_SCORE_THRESHOLD}): {len(good_matches)}")
-    
-    # Print top results to console
-    _print_classified_results(good_matches, show_top=10)
-    
-    # --- Step 5: Save to SQLite + Dedup ---
-    print(f"\n💾 Saving to database...")
-    new_count = 0
-    for sj in classified:  # V2 Fix: Save ALL jobs, even rejected ones, for tracking
-        is_new = upsert_job(sj)
-        if is_new:
-            new_count += 1
-    print(f"  {new_count} new jobs, {len(classified) - new_count} already known")
-    
-    # Only notify about jobs never sent before
-    unnotified = get_unnotified_jobs()
-    
-    # --- Step 6: Notify via Telegram (only NEW jobs) ---
-    notified = False
-    
-    if unnotified:
-        print(f"\n📱 Sending Telegram notification ({len(unnotified)} new matches)...")
-        
-        jobs_to_send = unnotified[:MAX_JOBS_IN_NOTIFICATION]
-        
-        # V2: Send interactive per-job cards with inline buttons
-        success = send_job_cards_with_buttons(jobs_to_send, total_analyzed=len(all_scored))
-        notified = success
-        if success:
-            mark_notified([j['job_id'] for j in unnotified])
-            print("✅ Telegram sent with interactive buttons!")
+        if rag_candidates:
+            rejected = [sj for sj in classified if sj.verdict == "SKIP" or sj.llm_score < LLM_SCORE_THRESHOLD]
+            if rejected:
+                summary_lines.append("🗑️ <b>Principais rejeições da IA:</b>")
+                for sj in rejected[:8]:
+                    reason = str(sj.red_flags) if sj.red_flags and sj.red_flags != "None" else str(sj.fit_reason)
+                    summary_lines.append(f"• <b>{sj.job.company}</b>: <i>{reason[:70]}...</i>")
         else:
-            print("❌ Telegram failed")
-    # Send a pipeline summary message to keep user informed 
-    summary_lines = [
-        f"🤖 <b>Pipeline Finalizado ({len(all_scored)} coletadas)</b>",
-        f"🧠 Avançaram pro LLM (RAG ≥ {SCORE_THRESHOLD}%): <b>{len(rag_candidates)}</b>",
-        f"✅ Aprovadas (LLM ≥ {LLM_SCORE_THRESHOLD}%): <b>{len(good_matches)}</b>\n",
-    ]
-    
-    if rag_candidates:
-        rejected_jobs = [sj for sj in classified if sj.verdict == "SKIP" or sj.llm_score < LLM_SCORE_THRESHOLD]
-        if rejected_jobs:
-            summary_lines.append("🗑️ <b>Principais rejeições da IA:</b>")
-            for sj in rejected_jobs[:8]:  # show top 8 reasons
-                reason = str(sj.red_flags) if sj.red_flags and sj.red_flags != "None" else str(sj.fit_reason)
-                summary_lines.append(f"• <b>{sj.job.company}</b>: <i>{reason[:70]}...</i>")
+            summary_lines.append("⚠️ Nenhuma vaga passou no filtro de afinidade inicial (RAG).")
                 
-            if len(rejected_jobs) > 8:
-                summary_lines.append(f"<i>... e mais {len(rejected_jobs) - 8} vagas filtradas.</i>")
-    else:
-        summary_lines.append("⚠️ Nenhuma vaga passou no filtro de afinidade inicial (RAG).")
-            
-    summary_lines.append("\n💾 <i>Lembrete: TODAS as vagas foram salvas no /stats</i>")
-    try:
-        send_telegram_message("\n".join(summary_lines))
-        logger.info("✅ Summary report sent to Telegram")
+        summary_lines.append("\n💾 <i>Lembrete: TODAS as vagas foram salvas no /stats</i>")
+        try:
+            send_telegram_message("\n".join(summary_lines))
+        except Exception as e:
+            logger.error(f"Failed to send summary: {e}")
+                
+        return {
+            "total": len(all_scored),
+            "good_matches": len(good_matches),
+            "notified": notified,
+            "timestamp": datetime.now().isoformat(),
+        }
+
     except Exception as e:
-        logger.error(f"❌ Failed to send summary: {e}")
-            
-    return {
-        "total": len(all_scored),
-        "good_matches": len(good_matches),
-        "notified": notified,
-        "timestamp": datetime.now().isoformat(),
-    }
+        import traceback
+        err_stack = traceback.format_exc()
+        logger.error(f"FATAL PIPELINE ERROR: {e}\n{err_stack}")
+        try:
+            err_msg = f"❌ <b>Erro Crítico no Pipeline:</b>\n<pre>{err_stack[-1000:]}</pre>"
+            send_telegram_message(err_msg)
+        except:
+            pass
+        return {"total": 0, "good_matches": 0, "notified": False, "error": str(e)}
 
 
 def _format_telegram_message(scored_jobs: list, total: int = 0) -> str:
