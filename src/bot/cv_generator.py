@@ -32,30 +32,31 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from reportlab.lib.colors import HexColor
 
+from src.bot.key_router import get_key
+
 
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "jobs.db"
 CAREER_PATH = Path(__file__).parent.parent.parent / "data" / "career"
 
 
-def _get_api_key() -> str:
-    keys = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", ""))
-    return keys.split(",")[0].strip() if "," in keys else keys.strip()
-
-
 def _get_gemini_client():
-    return genai.Client(api_key=_get_api_key())
+    return genai.Client(api_key=get_key("paid"))
 
 
 def _load_career_profile() -> str:
+    """Load career profile from files or env vars (Railway scenario)."""
     parts = []
     if CAREER_PATH.exists():
         for f in sorted(CAREER_PATH.iterdir()):
             if f.suffix in (".md", ".txt") and f.is_file():
                 parts.append(f.read_text(encoding="utf-8"))
     if not parts:
-        env = os.getenv("MASTER_PROFILE", "")
-        if env:
-            parts.append(env)
+        master = os.getenv("MASTER_PROFILE", "")
+        if master:
+            parts.append(master)
+        product_ops = os.getenv("PRODUCT_OPS_PROFILE", "")
+        if product_ops:
+            parts.append(f"## Competências de Product Ops\n{product_ops}")
     return "\n\n---\n\n".join(parts) if parts else ""
 
 
