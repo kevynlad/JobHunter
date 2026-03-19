@@ -32,12 +32,16 @@ _SUMMARY_PATH = Path(__file__).parent.parent.parent / "career_summary.txt"
 _LEARNED_PREFS_PATH = Path(__file__).parent.parent.parent / "data" / "learned_preferences.md"
 
 def _load_career_summary() -> str:
-    """Load career summary from external file."""
+    """Load career summary from file, or fall back to MASTER_PROFILE env var."""
     if _SUMMARY_PATH.exists():
         return _SUMMARY_PATH.read_text(encoding="utf-8")
+    # Fallback: use MASTER_PROFILE env var (set in Railway when file is gitignored)
+    env_profile = os.getenv("MASTER_PROFILE", "").strip()
+    if env_profile:
+        print("[i] career_summary.txt not found — using MASTER_PROFILE env var.")
+        return env_profile
     print(f"[!] career_summary.txt not found at {_SUMMARY_PATH}")
-    print("    Copy career_summary.example.txt and fill in your profile.")
-    return "No career summary configured. Copy career_summary.example.txt to career_summary.txt."
+    return "No career summary configured."
 
 CAREER_SUMMARY = _load_career_summary()
 
