@@ -54,7 +54,7 @@ CAREER_SUMMARY = _load_career_summary()
 
 _current_key_idx = 0
 
-def _call_gemini(prompt: str, max_retries: int = 3) -> dict | None:
+def _call_gemini(prompt: str, tier: str = "free", max_retries: int = 3) -> dict | None:
     """
     Call Gemini API with automatic retry on rate limits.
     Handles truncated JSON from thinking models via partial recovery.
@@ -62,8 +62,9 @@ def _call_gemini(prompt: str, max_retries: int = 3) -> dict | None:
     """
     global _current_key_idx
     
-    # Use the free tier key pool (high-volume, batch tasks)
-    keys = get_key_pool("free")
+    # Use the specified tier key pool
+    from src.bot.key_router import get_key_pool
+    keys = get_key_pool(tier)
     if not keys:
         return None
     
@@ -225,7 +226,7 @@ SCORING:
 Be strict. Jr at unknown consulting = <40. Jr/Pleno at Large Fintech = >75.
 """
 
-    result = _call_gemini(prompt)
+    result = _call_gemini(prompt, tier="paid")
     
     if result is None:
         return _default_result("LLM unavailable")
@@ -242,11 +243,14 @@ Be strict. Jr at unknown consulting = <40. Jr/Pleno at Large Fintech = >75.
 
 def classify_jobs_batch(scored_jobs: list, max_classify: int = 60) -> list:
     """
-    Classify the top RAG-scored jobs with Gemini.
+    Classify the top RAG-scored jobs with Gemini using the PAID tier for speed.
     
     Only classifies top `max_classify` jobs.
-    Rate limit: waits between calls and auto-retries on 429.
+    Using the paid key means we can remove the long wait times.
     """
+    from src.bot.key_router import get_key_pool
+    keys = get_key_pool("paid")  # Use paid key for speed and reliability
+    
     to_classify = scored_jobs[:max_classify]
     skip_count = len(scored_jobs) - len(to_classify)
     
@@ -255,10 +259,9 @@ def classify_jobs_batch(scored_jobs: list, max_classify: int = 60) -> list:
         print(f"  (skipping {skip_count} lower-scored candidates)")
     
     for i, sj in enumerate(to_classify):
-        # Wait between calls to stay under 20 req/min Free Tier 
-        # (15 seconds ensures only 4 requests per minute, well under limit)
+        # Small delay to avoid burst limits (0.5s vs 15s in free tier)
         if i > 0:
-            time.sleep(15)
+            time.sleep(0.5)
         
         result = classify_job(
             title=sj.job.title,

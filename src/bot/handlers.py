@@ -24,9 +24,9 @@ async def handle_pipeline_command(update: Update, context: ContextTypes.DEFAULT_
     Sends a confirmation before and after execution.
     """
     await update.message.reply_html(
-        "🔄 <b>Iniciando pipeline manualmente...</b>\n\n"
-        "Isso pode levar até 15 minutos (classificação de 60 vagas).\n"
-        "Você receberá uma notificação quando terminar."
+        "🔄 <b>Iniciando pipeline de alta velocidade...</b>\n\n"
+        "Analisando as melhores vagas para seu perfil.\n"
+        "Você receberá o resumo em instantes! ⚡"
     )
     import asyncio
     from src.pipeline import run_pipeline
