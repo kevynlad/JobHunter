@@ -32,7 +32,7 @@ CAREER_DOCS_PATH = Path(__file__).parent.parent.parent / "data" / "career"
 VECTOR_STORE_PATH = Path(__file__).parent.parent.parent / "data" / "career_vectors.json"
 
 # Gemini embedding model
-EMBEDDING_MODEL = "models/text-embedding-004"
+EMBEDDING_MODEL = "text-embedding-004"
 
 # Chunk size (in characters)
 CHUNK_SIZE = 500

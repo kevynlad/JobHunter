@@ -17,7 +17,7 @@ load_dotenv()
 
 # Shared config
 VECTOR_STORE_PATH = Path(__file__).parent.parent.parent / "data" / "career_vectors.json"
-EMBEDDING_MODEL = "models/text-embedding-004"
+EMBEDDING_MODEL = "text-embedding-004"
 
 # Cache in memory after first load
 _vector_store: dict | None = None
