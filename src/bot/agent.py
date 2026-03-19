@@ -26,20 +26,24 @@ DB_PATH = Path(__file__).parent.parent.parent / "data" / "jobs.db"
 
 
 def _load_career_profile() -> str:
-    """Load career profile trimmed to 2000 chars to save tokens on every request."""
+    """Load career profile from files or env vars (Railway scenario)."""
     parts = []
     if CAREER_PATH.exists():
         for f in CAREER_PATH.iterdir():
             if f.suffix in (".md", ".txt") and f.is_file():
                 parts.append(f.read_text(encoding="utf-8"))
-    # Fallback: use env var (GitHub Actions scenario)
+
+    # Fallback: read from Railway env vars when Volume files aren't present
     if not parts:
-        profile = os.getenv("MASTER_PROFILE", "")
-        if profile:
-            parts.append(profile)
+        master = os.getenv("MASTER_PROFILE", "").strip()
+        product_ops = os.getenv("PRODUCT_OPS_PROFILE", "").strip()
+        if master:
+            parts.append(master)
+        if product_ops:
+            parts.append(f"## Competências de Product Ops\n{product_ops}")
+
     full_profile = "\n\n---\n\n".join(parts) if parts else "Perfil de carreira não disponível."
-    # Trim to 2000 chars to avoid burning free-tier token quota on every request.
-    # The full profile is available via the RAG pipeline.
+    # Trim to 2000 chars to avoid burning token quota on every request
     if len(full_profile) > 2000:
         full_profile = full_profile[:2000] + "\n\n[... perfil truncado | resumo disponível via ferramentas ...]"
     return full_profile
