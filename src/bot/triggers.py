@@ -61,11 +61,11 @@ async def followup_trigger(context: CallbackContext):
     cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
     conn = _get_db()
     rows = conn.execute("""
-        SELECT job_id, title, company, combined_score
+        SELECT job_id, title, company, llm_score
         FROM jobs
         WHERE status = 'interested'
         AND first_seen <= ?
-        ORDER BY combined_score DESC
+        ORDER BY llm_score DESC
         LIMIT 5
     """, (cutoff,)).fetchall()
     conn.close()
