@@ -32,7 +32,7 @@ CAREER_DOCS_PATH = Path(__file__).parent.parent.parent / "data" / "career"
 VECTOR_STORE_PATH = Path(__file__).parent.parent.parent / "data" / "career_vectors.json"
 
 # Gemini embedding model
-EMBEDDING_MODEL = "text-embedding-004"
+EMBEDDING_MODEL = "gemini-embedding-001"
 
 # Chunk size (in characters)
 CHUNK_SIZE = 500
@@ -108,7 +108,7 @@ def build_vector_db() -> dict:
     🚀 Build the career vector store using Gemini embeddings.
 
     Replaces ChromaDB + sentence-transformers with:
-    - Gemini text-embedding-004 API (online, no local model)
+    - Gemini gemini-embedding-001 API (online, no local model)
     - Simple JSON file as vector store (~50KB instead of ~520MB)
 
     Returns a summary dict.
@@ -157,7 +157,7 @@ def build_vector_db() -> dict:
     if not all_chunks:
         return {"status": "error", "message": "No text extracted from documents"}
 
-    print(f"\n🧠 Embedding {len(all_chunks)} chunks via Gemini API (text-embedding-004)...")
+    print(f"\n🧠 Embedding {len(all_chunks)} chunks via Gemini API (gemini-embedding-001)...")
     embeddings = _embed_texts(all_chunks)
 
     # Save to lightweight JSON (replaces ChromaDB entirely)
