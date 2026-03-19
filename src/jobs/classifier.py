@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from src.bot.key_router import get_key_pool
+
 
 # Gemini API Configuration
 GEMINI_MODEL = "gemini-flash-latest"
@@ -50,10 +52,8 @@ def _call_gemini(prompt: str, max_retries: int = 3) -> dict | None:
     """
     global _current_key_idx
     
-    # Accept multiple keys separated by comma
-    api_key_str = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", ""))
-    keys = [k.strip() for k in api_key_str.split(",") if k.strip()]
-    
+    # Use the free tier key pool (high-volume, batch tasks)
+    keys = get_key_pool("free")
     if not keys:
         return None
     

@@ -17,6 +17,7 @@ from google import genai
 from google.genai import types
 
 from src.bot.tools import TOOL_DECLARATIONS, TOOL_EXECUTOR
+from src.bot.key_router import get_key, get_key_pool
 
 
 # Load career profile for system context
@@ -81,8 +82,12 @@ class CareerAgent:
 
     def _setup_model(self):
         """Initialize chat session system prompt and state."""
-        self.api_keys = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", "")).split(",")
-        self.api_keys = [k.strip() for k in self.api_keys if k.strip()]
+        # Paid key for interactive user-facing conversations
+        self.api_keys = get_key_pool("paid")
+        if not self.api_keys:
+            # Fallback to legacy pool if paid key not configured
+            pool = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", "")).split(",")
+            self.api_keys = [k.strip() for k in pool if k.strip()]
         self.current_key_idx = 0
         
         if not self.api_keys:
