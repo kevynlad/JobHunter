@@ -97,11 +97,11 @@ def run_pipeline() -> dict:
     # --- Step 5: Save to SQLite + Dedup ---
     print(f"\n💾 Saving to database...")
     new_count = 0
-    for sj in good_matches:
+    for sj in classified:  # V2 Fix: Save ALL jobs, even rejected ones, for tracking
         is_new = upsert_job(sj)
         if is_new:
             new_count += 1
-    print(f"  {new_count} new jobs, {len(good_matches) - new_count} already known")
+    print(f"  {new_count} new jobs, {len(classified) - new_count} already known")
     
     # Only notify about jobs never sent before
     unnotified = get_unnotified_jobs()
@@ -124,6 +124,26 @@ def run_pipeline() -> dict:
             print("❌ Telegram failed")
     else:
         print(f"\n⏭️ No new (unnotified) jobs to send.")
+        
+    # Send a pipeline summary message to keep user informed of rejected jobs
+    summary_lines = [
+        f"🤖 <b>Pipeline Finalizado ({len(all_scored)} coletadas)</b>",
+        f"🧠 Avançaram pro LLM (RAG ≥ {SCORE_THRESHOLD}%): <b>{len(rag_candidates)}</b>",
+        f"✅ Aprovadas (LLM ≥ {LLM_SCORE_THRESHOLD}%): <b>{len(good_matches)}</b>\n",
+    ]
+    
+    rejected_jobs = [sj for sj in classified if sj.verdict == "SKIP" or sj.llm_score < LLM_SCORE_THRESHOLD]
+    if rejected_jobs:
+        summary_lines.append("🗑️ <b>Principais rejeições da IA:</b>")
+        for sj in rejected_jobs[:8]:  # show top 8 reasons
+            reason = str(sj.red_flags) if sj.red_flags and sj.red_flags != "None" else str(sj.fit_reason)
+            summary_lines.append(f"• <b>{sj.job.company}</b>: <i>{reason[:70]}...</i>")
+            
+        if len(rejected_jobs) > 8:
+            summary_lines.append(f"<i>... e mais {len(rejected_jobs) - 8} vagas filtradas.</i>")
+            
+    summary_lines.append("\n💾 <i>Lembrete: TODAS as vagas foram salvas no /stats</i>")
+    send_telegram_message("\n".join(summary_lines))
     
     # --- Step 7: Save CSV ---
     _save_results_csv(good_matches if good_matches else classified)
