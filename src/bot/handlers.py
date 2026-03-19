@@ -15,7 +15,7 @@ from src.bot.keyboards import (
     applied_followup_keyboard,
     main_menu_keyboard,
 )
-from src.bot.tools import update_job_status, get_recent_jobs
+from src.bot.tools import update_job_status, get_recent_jobs, get_application_stats
 
 
 async def handle_pipeline_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -47,6 +47,25 @@ async def handle_pipeline_command(update: Update, context: ContextTypes.DEFAULT_
             )
 
     asyncio.create_task(_run())
+
+
+async def handle_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /stats — Debug command to show raw database numbers directly.
+    """
+    stats_json = get_application_stats()
+    try:
+        stats = json.loads(stats_json)
+        total = stats.get("total_analyzed", 0)
+        by_status = stats.get("by_status", {})
+        
+        text = f"📊 <b>Raw Database Stats:</b>\n\nTotal jobs in DB: {total}\n"
+        for status, count in by_status.items():
+            text += f"- {status}: {count}\n"
+            
+        await update.message.reply_html(text)
+    except Exception as e:
+        await update.message.reply_html(f"Error parsing stats: {e}")
 
 
 

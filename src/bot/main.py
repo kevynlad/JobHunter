@@ -22,7 +22,13 @@ from telegram.ext import (
     filters,
 )
 
-from src.bot.handlers import handle_message, handle_start, handle_callback, handle_pipeline_command
+from src.bot.handlers import (
+    handle_message,
+    handle_start,
+    handle_callback,
+    handle_pipeline_command,
+    handle_stats_command,
+)
 from src.bot.triggers import setup_triggers
 from src.jobs.database import init_db, DB_PATH
 import threading
@@ -66,6 +72,7 @@ def main():
     # Handlers — order matters: specific before generic
     app.add_handler(CommandHandler("start", handle_start))
     app.add_handler(CommandHandler("pipeline", handle_pipeline_command))
+    app.add_handler(CommandHandler("stats", handle_stats_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
