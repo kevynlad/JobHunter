@@ -18,6 +18,38 @@ from src.bot.keyboards import (
 from src.bot.tools import update_job_status, get_recent_jobs
 
 
+async def handle_pipeline_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /pipeline — Manually triggers the full pipeline for testing.
+    Sends a confirmation before and after execution.
+    """
+    await update.message.reply_html(
+        "🔄 <b>Iniciando pipeline manualmente...</b>\n\n"
+        "Isso pode levar até 15 minutos (classificação de 60 vagas).\n"
+        "Você receberá uma notificação quando terminar."
+    )
+    import asyncio
+    from src.pipeline import run_pipeline
+    from src.rag.ingest import build_vector_db
+
+    async def _run():
+        try:
+            def _sync():
+                build_vector_db()
+                return run_pipeline()
+            result = await asyncio.to_thread(_sync)
+            await update.message.reply_html(
+                f"✅ <b>Pipeline concluído!</b>\n<code>{result}</code>"
+            )
+        except Exception as e:
+            await update.message.reply_html(
+                f"❌ <b>Erro no pipeline:</b>\n<code>{str(e)[:300]}</code>"
+            )
+
+    asyncio.create_task(_run())
+
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handle any text message from the user.
