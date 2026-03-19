@@ -31,18 +31,18 @@ def get_recent_jobs(days: int = 7, limit: int = 10) -> str:
         conn = _get_db()
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         rows = conn.execute("""
-            SELECT id, title, company, location, rag_score, llm_score,
-                   combined_score, verdict, seniority, company_tier,
-                   fit_reason, status, url, created_at
+            SELECT job_id as id, title, company, location, rag_score, llm_score,
+                   verdict, seniority, company_tier,
+                   fit_reason, status, url, first_seen as created_at
             FROM jobs
-            WHERE created_at >= ?
-            ORDER BY combined_score DESC
+            WHERE first_seen >= ?
+            ORDER BY llm_score DESC
             LIMIT ?
         """, (cutoff, limit)).fetchall()
         conn.close()
 
         cols = ["id", "title", "company", "location", "rag_score", "llm_score",
-                "combined_score", "verdict", "seniority", "company_tier",
+                "verdict", "seniority", "company_tier",
                 "fit_reason", "status", "url", "created_at"]
         jobs = [dict(zip(cols, row)) for row in rows]
         return json.dumps({"jobs": jobs, "count": len(jobs)}, ensure_ascii=False)
@@ -57,15 +57,15 @@ def get_job_detail(job_id: str = "", company: str = "", title: str = "") -> str:
     try:
         conn = _get_db()
         if job_id:
-            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            row = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         elif company:
             row = conn.execute(
-                "SELECT * FROM jobs WHERE company LIKE ? ORDER BY combined_score DESC LIMIT 1",
+                "SELECT * FROM jobs WHERE company LIKE ? ORDER BY llm_score DESC LIMIT 1",
                 (f"%{company}%",)
             ).fetchone()
         elif title:
             row = conn.execute(
-                "SELECT * FROM jobs WHERE title LIKE ? ORDER BY combined_score DESC LIMIT 1",
+                "SELECT * FROM jobs WHERE title LIKE ? ORDER BY llm_score DESC LIMIT 1",
                 (f"%{title}%",)
             ).fetchone()
         else:
@@ -98,7 +98,7 @@ def update_job_status(job_id: str, status: str) -> str:
     try:
         conn = _get_db()
         # Check the job exists
-        exists = conn.execute("SELECT id FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        exists = conn.execute("SELECT job_id FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if not exists:
             conn.close()
             return json.dumps({"error": f"Vaga {job_id} não encontrada"})
@@ -106,11 +106,11 @@ def update_job_status(job_id: str, status: str) -> str:
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         if status == "applied":
             conn.execute(
-                "UPDATE jobs SET status = ?, applied_at = ? WHERE id = ?",
+                "UPDATE jobs SET status = ?, applied_at = ? WHERE job_id = ?",
                 (status, now, job_id)
             )
         else:
-            conn.execute("UPDATE jobs SET status = ? WHERE id = ?", (status, job_id))
+            conn.execute("UPDATE jobs SET status = ? WHERE job_id = ?", (status, job_id))
         conn.commit()
         conn.close()
         return json.dumps({"success": True, "job_id": job_id, "new_status": status})
@@ -156,11 +156,11 @@ def get_pending_followups() -> str:
         conn = _get_db()
         cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
         rows = conn.execute("""
-            SELECT id, title, company, combined_score, created_at
+            SELECT job_id as id, title, company, llm_score as combined_score, first_seen as created_at
             FROM jobs
             WHERE status = 'interested'
-            AND created_at <= ?
-            ORDER BY combined_score DESC
+            AND first_seen <= ?
+            ORDER BY llm_score DESC
         """, (cutoff,)).fetchall()
         conn.close()
         jobs = [
