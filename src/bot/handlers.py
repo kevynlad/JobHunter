@@ -73,12 +73,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("apply:"):
         job_id = data.split(":", 1)[1]
-        # Mark as interested and inform the agent
         update_job_status(job_id=job_id, status="interested")
         response = await agent.chat_async(
-            f"O usuário clicou em 'Quero Aplicar' na vaga ID={job_id}. "
-            f"Confirme o interesse, ofereça gerar uma cover letter e lembre que "
-            f"faremos follow-up em 3 dias."
+            f"[SISTEMA INTERNO] O usuário clicou no botão 'Quero Aplicar' na vaga ID={job_id}.\n"
+            f"Sua missão agora:\n"
+            f"1. IMPORTANTE: Use a ferramenta 'learn_from_job' no ID={job_id} para extrair as "
+            f"competências que o usuário achou legal nesta vaga e injetar no cérebro V2.\n"
+            f"2. Confirme ao usuário que a vaga foi salva como 'interessante'.\n"
+            f"3. Ofereça gerar a Cover Letter."
         )
         await query.edit_message_reply_markup(reply_markup=None)
         await query.message.reply_html(response, reply_markup=main_menu_keyboard())
@@ -116,10 +118,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         job_id = data.split(":", 1)[1]
         update_job_status(job_id=job_id, status="applied")
         await query.edit_message_reply_markup(reply_markup=None)
-        await query.message.reply_html(
-            "✅ Marcado como aplicado! Boa sorte! 🤞\n"
-            "Vou perguntar sobre o retorno em 7 dias."
+        response = await agent.chat_async(
+            f"[SISTEMA INTERNO] O usuário clicou no botão 'Já Apliquei' na vaga ID={job_id}.\n"
+            f"IMPORTANTE: Use a ferramenta 'learn_from_job' com esse ID para registrar esse perfil "
+            f"como o 'padrão ouro' de vagas do usuário. Depois, parabenize-o pela aplicação."
         )
+        await query.message.reply_html(response)
 
     elif data == "menu:recent":
         response = await agent.chat_async(
