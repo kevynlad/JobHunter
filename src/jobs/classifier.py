@@ -27,6 +27,8 @@ GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMI
 
 # Career summary — loaded from external file (gitignored) to protect personal data
 _SUMMARY_PATH = Path(__file__).parent.parent.parent / "career_summary.txt"
+_LEARNED_PREFS_PATH = Path(__file__).parent.parent.parent / "data" / "learned_preferences.md"
+_LEARNED_PREFS_PATH = Path(__file__).parent.parent.parent / "data" / "learned_preferences.md"
 
 def _load_career_summary() -> str:
     """Load career summary from external file."""
@@ -173,11 +175,14 @@ def classify_job(title: str, company: str, description: str, location: str) -> d
     """
     desc_truncated = description[:4000] if description else "No description"
     
+    learned_prefs = _LEARNED_PREFS_PATH.read_text(encoding="utf-8").strip() if _LEARNED_PREFS_PATH.exists() else ""
+    prefs_section = f"\n[COMPETÊNCIAS APRENDIDAS - O usuário prioriza estas características (dê MUITO MAIS PESO no llm_score se bater com isso)]:\n{learned_prefs}\n" if learned_prefs else ""
+    
     prompt = f"""Você é um estrategista de carreira pragmático e focado em resultados reais.
 Sua missão é avaliar vagas para o candidato abaixo, que busca a efetivação no mercado como Analista, deixando para trás o título de estagiário. 
 
 {CAREER_SUMMARY}
-
+{prefs_section}
 JOB:
 Title: {title}
 Company: {company}

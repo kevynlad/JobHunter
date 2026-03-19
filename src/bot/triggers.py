@@ -16,12 +16,19 @@ For GitHub Actions, a separate workflow handles these triggers.
 import os
 import json
 import sqlite3
+import asyncio
+import logging
 from datetime import datetime, timedelta
+import pytz
 from pathlib import Path
 
 from telegram.ext import CallbackContext
 
 from src.bot.keyboards import applied_followup_keyboard
+from src.pipeline import run_pipeline
+from src.rag.ingest import build_vector_db
+
+logger = logging.getLogger(__name__)
 
 
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "jobs.db"
@@ -129,10 +136,35 @@ async def weekly_digest(context: CallbackContext):
     )
 
 
+async def run_pipeline_trigger(context: CallbackContext):
+    """
+    Executa silenciosamente a base vector db e o pipeline de vagas.
+    Roda em fallback thread para não travar mensagens do Telegram em tempo real.
+    """
+    logger.info("Iniciando ingestão da base de conhecimentos (ChromaDB) e JobHunter Pipeline...")
+    try:
+        def _sync_flow():
+            build_vector_db()
+            return run_pipeline()
+            
+        result = await asyncio.to_thread(_sync_flow)
+        logger.info(f"Pipeline autônomo concluído com sucesso: {result}")
+    except Exception as e:
+        logger.error(f"Falha na execução do pipeline agendado: {e}")
+        chat_id = _get_chat_id()
+        if chat_id:
+             await context.bot.send_message(
+                 chat_id=chat_id,
+                 text=f"⚠️ <b>Erro interno no Pipeline Autônomo da V2</b>:\n<code>{str(e)}</code>",
+                 parse_mode="HTML"
+             )
+
 # ─────────────────────────── SETUP ───────────────────────────
 
 def setup_triggers(job_queue):
     """Register all proactive triggers with the APScheduler job queue."""
+    sp_tz = pytz.timezone("America/Sao_Paulo")
+    
     # Follow-up: every 6 hours
     job_queue.run_repeating(
         followup_trigger,
@@ -144,7 +176,19 @@ def setup_triggers(job_queue):
     # Weekly digest: every Monday at 9am
     job_queue.run_daily(
         weekly_digest,
-        time=datetime.strptime("09:00", "%H:%M").time(),
+        time=datetime.strptime("09:00", "%H:%M").replace(tzinfo=sp_tz).time(),
         days=(0,),  # Monday only
         name="weekly_digest",
+    )
+    
+    # Autonomous Pipeline: Runs twice a day securely on Railway (08:00 and 18:00)
+    job_queue.run_daily(
+        run_pipeline_trigger,
+        time=datetime.strptime("08:00", "%H:%M").replace(tzinfo=sp_tz).time(),
+        name="daily_pipeline_morning",
+    )
+    job_queue.run_daily(
+        run_pipeline_trigger,
+        time=datetime.strptime("18:00", "%H:%M").replace(tzinfo=sp_tz).time(),
+        name="daily_pipeline_evening",
     )

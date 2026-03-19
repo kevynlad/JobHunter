@@ -10,6 +10,13 @@ google-genai>=1.0.0
 # PDF generation
 reportlab>=4.0.0
 
-# HTTP + env
+# HTTP + env + Scraping
 httpx>=0.27.0
 python-dotenv>=1.0.0
+beautifulsoup4>=4.12.0
+
+# Pipeline Dependencies (Search + RAG)
+chromadb>=0.4.20
+sentence-transformers>=2.3.0
+python-jobspy>=1.1.0
+pandas>=2.0.0
