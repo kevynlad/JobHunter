@@ -77,8 +77,8 @@ def split_into_chunks(text: str) -> list[str]:
 
 def _embed_texts(texts: list[str]) -> list[list[float]]:
     """
-    Call Gemini's embedding API for a list of texts.
-    Uses the free key since this is a one-time build operation.
+    Call Gemini's embedding API for a list of texts using the official SDK.
+    Uses 'gemini-embedding-001' which avoids the v1beta NOT_FOUND issues.
     """
     from google import genai
     from src.bot.key_router import get_key
@@ -87,13 +87,18 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
     client = genai.Client(api_key=api_key)
 
     embeddings = []
-    for text in texts:
+    # Send in batches of 100 to stay within limits
+    BATCH_SIZE = 100
+    for batch_start in range(0, len(texts), BATCH_SIZE):
+        batch = texts[batch_start:batch_start + BATCH_SIZE]
         result = client.models.embed_content(
             model=EMBEDDING_MODEL,
-            contents=text,
+            contents=batch,
         )
-        embeddings.append(result.embeddings[0].values)
+        for item in result.embeddings:
+            embeddings.append(item.values)
     return embeddings
+
 
 
 # ----- MAIN INGEST FUNCTION -----
