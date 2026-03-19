@@ -54,16 +54,21 @@ def run_pipeline() -> dict:
     print("=" * 60)
     
     # --- Step 1: Search + RAG Score ---
-    print("\n📌 Step 1: Searching and RAG scoring jobs...")
-    all_scored = search_and_match(min_score=0)
+    logger.info("\n📌 Step 1: Searching and RAG scoring jobs...")
+    try:
+        all_scored = search_and_match(min_score=0)
+    except Exception as e:
+        logger.error(f"❌ search_and_match failed: {e}", exc_info=True)
+        all_scored = []
     
     if not all_scored:
-        print("\n❌ No jobs found. Check internet/API key.")
-        return {"total": 0, "good_matches": 0, "notified": False}
-    
-    # --- Step 2: Pre-filter by RAG score (≥SCORE_THRESHOLD%) ---
-    rag_candidates = [sj for sj in all_scored if sj.score >= SCORE_THRESHOLD]
-    logger.info(f"📊 RAG pre-filter: {len(all_scored)} → {len(rag_candidates)} candidates (≥{SCORE_THRESHOLD}%)")
+        logger.warning("\n❌ No jobs found or search failed.")
+        # We continue to the summary part to notify the user
+        rag_candidates = []
+    else:
+        # --- Step 2: Pre-filter by RAG score (≥SCORE_THRESHOLD%) ---
+        rag_candidates = [sj for sj in all_scored if sj.score >= SCORE_THRESHOLD]
+        logger.info(f"📊 RAG pre-filter: {len(all_scored)} → {len(rag_candidates)} candidates (≥{SCORE_THRESHOLD}%)")
     
     classified = []
     good_matches = []
@@ -162,12 +167,12 @@ def run_pipeline() -> dict:
         summary_lines.append("⚠️ Nenhuma vaga passou no filtro de afinidade inicial (RAG).")
             
     summary_lines.append("\n💾 <i>Lembrete: TODAS as vagas foram salvas no /stats</i>")
-    send_telegram_message("\n".join(summary_lines))
-    
-    # --- Step 7: Save CSV ---
-    _save_results_csv(good_matches if good_matches else classified)
-    
-    print(f"\n✅ Pipeline complete!")
+    try:
+        send_telegram_message("\n".join(summary_lines))
+        logger.info("✅ Summary report sent to Telegram")
+    except Exception as e:
+        logger.error(f"❌ Failed to send summary: {e}")
+            
     return {
         "total": len(all_scored),
         "good_matches": len(good_matches),

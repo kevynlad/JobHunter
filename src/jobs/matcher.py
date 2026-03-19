@@ -28,7 +28,10 @@ from dotenv import load_dotenv
 from src.jobs.models import JobPosting, ScoredJob, SearchFilters
 from src.jobs.sources import get_all_sources
 from src.jobs.config import CAREER_PATHS, LOCATIONS, INCLUDE_REMOTE, MAX_DAYS_OLD, RESULTS_PER_QUERY, MIN_MATCH_SCORE
+import logging
 from src.rag.retriever import score_jobs_batch
+
+logger = logging.getLogger(__name__)
 
 
 # Load environment variables
@@ -167,8 +170,8 @@ def search_and_match(min_score: float = 0) -> list[ScoredJob]:
     
     # --- Step 5: Score each job against your career profile (Batch RAG) ---
     with_desc = sum(1 for j in unique_jobs if j.description and j.description.strip())
-    print(f"\n  📝 Descriptions: {with_desc}/{len(unique_jobs)} jobs have full text")
-    print(f"  🧠 Scoring {len(unique_jobs)} jobs against your career (Batch Mode)...")
+    logger.info(f"📝 Descriptions: {with_desc}/{len(unique_jobs)} jobs have full text")
+    logger.info(f"🧠 Scoring {len(unique_jobs)} jobs against your career (Batch Mode)...")
     
     # Prepare data for batch scoring
     jobs_to_score = []
@@ -177,12 +180,17 @@ def search_and_match(min_score: float = 0) -> list[ScoredJob]:
         jobs_to_score.append({"id": job.id, "text": text_to_score})
     
     # Call batch API
-    batch_results = score_jobs_batch(jobs_to_score)
+    try:
+        batch_results = score_jobs_batch(jobs_to_score)
+    except Exception as e:
+        logger.error(f"❌ RAG Batch scoring failed: {e}", exc_info=True)
+        batch_results = []
+        
     batch_map = {res["id"]: res for res in batch_results}
     
     scored_jobs: list[ScoredJob] = []
     for job in unique_jobs:
-        res = batch_map.get(job.id, {"score": 50, "interpretation": "⚪ RAG Skip"})
+        res = batch_map.get(job.id, {"score": 50, "interpretation": "⚪ RAG Error Skip"})
         
         # FIX FOR MISSING DESCRIPTIONS:
         # If JobSpy fails to get the description, RAG scores just the title.

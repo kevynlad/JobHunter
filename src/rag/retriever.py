@@ -10,8 +10,11 @@ Now: loads ~50KB JSON vector store + cosine similarity in pure Python
 import json
 import os
 import math
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -167,12 +170,17 @@ def score_jobs_batch(jobs_data: list[dict]) -> list[dict]:
     texts = [j["text"][:3000] for j in jobs_data]
     
     # 1. Batch Embed all job texts
-    print(f"    📡 Requesting batch embeddings for {len(texts)} jobs...")
+    logger.info(f"    📡 Requesting batch embeddings for {len(texts)} jobs...")
     try:
         job_embeddings = _embed_batch(texts)
     except Exception as e:
-        print(f"    [!] Batch RAG error: {e}. Falling back to default scores.")
+        logger.error(f"    [!] Batch RAG error: {e}")
         return [{"id": j["id"], "score": 50, "interpretation": "⚪ RAG Error Fallback"} for j in jobs_data]
+
+    if len(job_embeddings) != len(texts):
+        logger.error(f"    [!] Mismatch: requested {len(texts)} embeddings, got {len(job_embeddings)}")
+        return [{"id": j["id"], "score": 50, "interpretation": "⚪ RAG Mismatch Fallback"} for j in jobs_data]
+
 
     # 2. Load career vectors
     try:
