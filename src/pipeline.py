@@ -38,7 +38,7 @@ load_dotenv()
 
 
 # ----- CONFIGURATION -----
-SCORE_THRESHOLD = 40.0          # Minimum RAG score
+SCORE_THRESHOLD = 45.0          # Minimum RAG score (Tightened for cost control)
 LLM_SCORE_THRESHOLD = 60       # Minimum LLM score (Gemini)
 MIN_JOBS_TO_NOTIFY = 5          # Need at least this many good jobs
 MAX_JOBS_IN_NOTIFICATION = 15   # Show at most this many in Telegram
@@ -76,9 +76,9 @@ def run_pipeline() -> dict:
             logger.info(f"📊 RAG pre-filter: {len(all_scored)} → {len(rag_candidates)} candidates (≥{SCORE_THRESHOLD}%)")
             
             if rag_candidates:
-                # --- Step 3: Classify with Gemini LLM ---
-                logger.info("\n📌 Step 2: Deep analysis with Gemini AI...")
-                classified = classify_jobs_batch(rag_candidates)
+                # --- Step 3: Classify with Gemini LLM (FREE TIER for background) ---
+                logger.info("\n📌 Step 2: Deep analysis with Gemini AI (FREE Tier)...")
+                classified = classify_jobs_batch(rag_candidates, max_classify=30, tier="free")
                 
                 # --- Step 4: Combined ranking + Filtering ---
                 for sj in classified:

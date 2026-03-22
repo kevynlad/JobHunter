@@ -174,18 +174,14 @@ def _extract_partial_json(text: str) -> dict | None:
         result["red_flags"] = flags_m.group(1).rstrip("\\")
     
     return result if "llm_score" in result else None
-    
-    return None
 
 
-def classify_job(title: str, company: str, description: str, location: str) -> dict:
+def classify_job(title: str, company: str, location: str, description: str, tier: str = "free") -> dict:
     """
-    Use Gemini to deeply analyze a job posting.
-    
-    Returns a dict with llm_score, seniority, company_tier,
-    fit_reason, red_flags, and verdict.
+    Predict match score and extract metadata via Gemini LLM.
+    Returns a dict with: llm_score, seniority, company_tier, fit_reason, red_flags, verdict.
     """
-    desc_truncated = description[:4000] if description else "No description"
+    desc_truncated = (description[:4000] + "...") if description and len(description) > 4000 else (description or "No description provided.")
     
     learned_prefs = _LEARNED_PREFS_PATH.read_text(encoding="utf-8").strip() if _LEARNED_PREFS_PATH.exists() else ""
     prefs_section = f"\n[COMPETÊNCIAS APRENDIDAS - O usuário prioriza estas características (dê MUITO MAIS PESO no llm_score se bater com isso)]:\n{learned_prefs}\n" if learned_prefs else ""
@@ -226,7 +222,7 @@ SCORING:
 Be strict. Jr at unknown consulting = <40. Jr/Pleno at Large Fintech = >75.
 """
 
-    result = _call_gemini(prompt, tier="paid")
+    result = _call_gemini(prompt, tier=tier)
     
     if result is None:
         return _default_result("LLM unavailable")
@@ -241,35 +237,39 @@ Be strict. Jr at unknown consulting = <40. Jr/Pleno at Large Fintech = >75.
     }
 
 
-def classify_jobs_batch(scored_jobs: list, max_classify: int = 60) -> list:
+def classify_jobs_batch(scored_jobs: list, max_classify: int = 30, tier: str = "free") -> list:
     """
-    Classify the top RAG-scored jobs with Gemini using the PAID tier for speed.
+    Classify the top RAG-scored jobs with Gemini.
     
-    Only classifies top `max_classify` jobs.
-    Using the paid key means we can remove the long wait times.
+    tier="free" -> zero cost, but sets a ~4.5s delay per job (safely under 15 RPM).
+    tier="paid" -> near-instant (0.5s delay), costs money.
     """
     from src.bot.key_router import get_key_pool
-    keys = get_key_pool("paid")  # Use paid key for speed and reliability
+    keys = get_key_pool(tier)
     
     to_classify = scored_jobs[:max_classify]
     skip_count = len(scored_jobs) - len(to_classify)
     
-    print(f"\n  🤖 Classifying top {len(to_classify)} jobs with Gemini ({GEMINI_MODEL})...")
+    print(f"\n  🤖 Classifying top {len(to_classify)} jobs with Gemini ({GEMINI_MODEL}) on {tier.upper()} tier...")
     if skip_count > 0:
         print(f"  (skipping {skip_count} lower-scored candidates)")
     
+    classified = []
     for i, sj in enumerate(to_classify):
-        # Small delay to avoid burst limits (0.5s vs 15s in free tier)
+        # Adaptive delay to stay within rate limits
         if i > 0:
-            time.sleep(0.5)
+            delay = 4.5 if tier == "free" else 0.5
+            time.sleep(delay)
         
         result = classify_job(
             title=sj.job.title,
             company=sj.job.company,
-            description=sj.job.description,
             location=sj.job.location,
+            description=sj.job.description,
+            tier=tier
         )
         
+        # Merge results into the ScoredJob object
         sj.llm_score = result["llm_score"]
         sj.seniority = result["seniority"]
         sj.company_tier = result["company_tier"]
@@ -277,10 +277,13 @@ def classify_jobs_batch(scored_jobs: list, max_classify: int = 60) -> list:
         sj.red_flags = result["red_flags"]
         sj.verdict = result["verdict"]
         
+        classified.append(sj)
+        
+        # Progress log
         if (i + 1) % 5 == 0 or (i + 1) == len(to_classify):
-            print(f"  ✅ Classified {i + 1}/{len(to_classify)}")
-    
-    return to_classify
+            print(f"    [{i+1}/{len(to_classify)}] {sj.job.company}: {sj.llm_score}% ({sj.verdict})")
+            
+    return classified
 
 
 def _default_result(reason: str) -> dict:

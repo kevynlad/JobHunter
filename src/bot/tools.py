@@ -213,8 +213,9 @@ def analyze_and_save_url(url: str) -> str:
         llm_result = classify_job(
             title=title,
             company=company,
+            location="Vaga via URL",
             description=desc_text,
-            career_path="URL Ingestion"
+            tier="paid"
         )
         llm_score = llm_result["llm_score"]
         
