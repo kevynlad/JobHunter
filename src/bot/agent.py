@@ -192,7 +192,7 @@ class CareerAgent:
                     step_count += 1
 
                     response = await self.client.aio.models.generate_content(
-                        model="gemini-2.0-flash",
+                        model="gemini-3.0-flash",
                         contents=self.history,
                         config=config,
                     )
