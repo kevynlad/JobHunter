@@ -78,7 +78,7 @@ def run_pipeline() -> dict:
             if rag_candidates:
                 # --- Step 3: Classify with Gemini LLM (FREE TIER for background) ---
                 logger.info("\n📌 Step 2: Deep analysis with Gemini AI (FREE Tier)...")
-                classified = classify_jobs_batch(rag_candidates, max_classify=30, tier="free")
+                classified = classify_jobs_batch(rag_candidates, max_classify=30, tier="paid")
                 
                 # --- Step 4: Combined ranking + Filtering ---
                 for sj in classified:
