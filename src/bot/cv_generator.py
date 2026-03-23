@@ -315,7 +315,7 @@ async def generate_cover_letter_pdf(bot, chat_id: int, job_id: str):
     )
 
     response = client.models.generate_content(
-        model="gemini-3.0-flash",
+        model="gemini-2.5-flash",
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             system_instruction=career_profile
@@ -373,7 +373,7 @@ async def generate_cv_pdf(bot, chat_id: int, job_id: str):
     )
 
     response = client.models.generate_content(
-        model="gemini-3.0-flash",
+        model="gemini-2.5-flash",
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             system_instruction=career_profile

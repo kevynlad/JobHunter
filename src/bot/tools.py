@@ -277,7 +277,7 @@ def learn_from_job(job_id: str) -> str:
         prompt = f"Leia esta vaga:\nTítulo: {title}\nEmpresa: {company}\nDescrição: {desc[:4000]}\n\nListe apenas 3 a 5 habilidades (hard ou soft) ou palavras-chave estratégicas que parecem ser o diferencial desta vaga, as quais o usuário demonstrou interesse. Formate apenas como uma linha separada por vírgulas."
         
         response = client.models.generate_content(
-            model="gemini-3.0-flash",
+            model="gemini-2.5-flash",
             contents=prompt,
         )
         keywords = response.text.replace("\n", "").strip()
