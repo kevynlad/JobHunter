@@ -38,7 +38,7 @@ load_dotenv()
 
 
 # ----- CONFIGURATION -----
-SCORE_THRESHOLD = 45.0          # Minimum RAG score (Tightened for cost control)
+SCORE_THRESHOLD = 40.0          # Minimum RAG score
 LLM_SCORE_THRESHOLD = 60       # Minimum LLM score (Gemini)
 MIN_JOBS_TO_NOTIFY = 5          # Need at least this many good jobs
 MAX_JOBS_IN_NOTIFICATION = 15   # Show at most this many in Telegram

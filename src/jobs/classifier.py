@@ -79,11 +79,20 @@ def _call_gemini(prompt: str, tier: str = "free", max_retries: int = 3) -> dict 
                         "temperature": 0.1,
                         "maxOutputTokens": 512,          # JSON output is small (~200 tokens)
                         "response_mime_type": "application/json",  # Structured output guarantee
-                        "thinkingConfig": {"thinkingBudget": 0}    # Disable thinking for speed
+                        # "thinkingConfig": {"thinkingBudget": 0}    # Disable thinking for speed - removed for flash
                     },
                 },
                 timeout=45,
             )
+            
+            if response.status_code == 429:
+                wait_time = (2 ** attempt) * 5
+                print(f"    [!] Rate limited (429). Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
+                time.sleep(wait_time)
+                # Rotate key if using a pool
+                _current_key_idx = (_current_key_idx + 1) % len(keys)
+                continue
+
             response.raise_for_status()
             data = response.json()
             
@@ -237,7 +246,7 @@ Be strict. Jr at unknown consulting = <40. Jr/Pleno at Large Fintech = >75.
     }
 
 
-def classify_jobs_batch(scored_jobs: list, max_classify: int = 30, tier: str = "free") -> list:
+def classify_jobs_batch(scored_jobs: list, max_classify: int = 60, tier: str = "free") -> list:
     """
     Classify the top RAG-scored jobs with Gemini.
     
