@@ -24,7 +24,7 @@ from src.bot.key_router import get_key_pool
 
 
 # Gemini API Configuration
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # Career summary — loaded from external file (gitignored) to protect personal data
@@ -72,7 +72,7 @@ def _call_gemini(system_instruction: str, prompt: str, tier: str = "free", max_r
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 512,
+            "maxOutputTokens": 1500,
             "responseMimeType": "application/json",
             "responseSchema": {
                 "type": "OBJECT",
@@ -104,6 +104,7 @@ def _call_gemini(system_instruction: str, prompt: str, tier: str = "free", max_r
             if response.status_code == 429:
                 wait_time = (2 ** attempt) * 5
                 print(f"    [!] Rate limited (429). Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
+                print(f"    [!] Body: {response.text}")
                 time.sleep(wait_time)
                 # Rotate key if using a pool
                 _current_key_idx = (_current_key_idx + 1) % len(keys)
@@ -115,18 +116,18 @@ def _call_gemini(system_instruction: str, prompt: str, tier: str = "free", max_r
             # Gemini 2.5 thinking models: last part = actual output
             parts = data["candidates"][0]["content"]["parts"]
             text = parts[-1].get("text", "").strip()
-            
+            print(f"    [DEBUG] Raw JSON text: {repr(text)}")
             return json.loads(text)
                 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 body = e.response.text
-                print(f"  ⚠️ Rate limit na Chave {_current_key_idx + 1}/{len(keys)}")
+                print(f"  [!] Rate limit na Chave {_current_key_idx + 1}/{len(keys)}")
                 
                 # If we have more than one key, just rotate to the next one instantly
                 if len(keys) > 1:
                     _current_key_idx = (_current_key_idx + 1) % len(keys)
-                    print(f"  🔄 Trocando para a Chave {_current_key_idx + 1}...")
+                    print(f"  [!] Trocando para a Chave {_current_key_idx + 1}...")
                     time.sleep(3) # tiny break before new key
                     continue
                 
@@ -136,16 +137,16 @@ def _call_gemini(system_instruction: str, prompt: str, tier: str = "free", max_r
                 wait_time = min(wait_time, 120)
                 
                 if attempt < max_retries - 1:
-                    print(f"  ⏳ Aguardando {wait_time:.0f}s (tentativa {attempt + 1}/{max_retries})")
+                    print(f"  [!] Aguardando {wait_time:.0f}s (tentativa {attempt + 1}/{max_retries})")
                     time.sleep(wait_time)
                 else:
-                    print(f"  ❌ Limite persistente após {max_retries} tentativas")
+                    print(f"  [Error] Limite persistente após {max_retries} tentativas")
                     return None
             else:
-                print(f"  ❌ Gemini API error: {e.response.status_code}")
+                print(f"  [Error] Gemini API error: {e.response.status_code}")
                 return None
         except Exception as e:
-            print(f"  ❌ LLM error: {e}")
+            print(f"  [Error] LLM error: {e}")
             return None
     
     return None
