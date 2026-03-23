@@ -94,9 +94,6 @@ def _save_documents_to_db(job_id: str, cover_letter_text: str,
 
 COVER_LETTER_PROMPT = """Você é um redator especialista em cartas de apresentação ATS-otimizadas para o mercado tech brasileiro.
 
-PERFIL DO CANDIDATO:
-{career_profile}
-
 VAGA ALVO:
 Título: {job_title}
 Empresa: {job_company}
@@ -126,9 +123,6 @@ Responda APENAS com o texto da carta, sem comentários extras."""
 
 
 CV_PROMPT = """Você é um especialista em criação de currículos ATS-otimizados para o mercado tech brasileiro.
-
-PERFIL COMPLETO DO CANDIDATO:
-{career_profile}
 
 VAGA ALVO:
 Título: {job_title}
@@ -313,7 +307,6 @@ async def generate_cover_letter_pdf(bot, chat_id: int, job_id: str):
     client = _get_gemini_client()
 
     prompt = COVER_LETTER_PROMPT.format(
-        career_profile=career_profile,
         job_title=job.get("title", ""),
         job_company=job.get("company", ""),
         seniority=job.get("seniority", ""),
@@ -322,8 +315,11 @@ async def generate_cover_letter_pdf(bot, chat_id: int, job_id: str):
     )
 
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=prompt,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=career_profile
+        )
     )
     cover_text = response.text.strip()
 
@@ -371,15 +367,17 @@ async def generate_cv_pdf(bot, chat_id: int, job_id: str):
     client = _get_gemini_client()
 
     prompt = CV_PROMPT.format(
-        career_profile=career_profile,
         job_title=job.get("title", ""),
         job_company=job.get("company", ""),
         job_description=job.get("description", "") or "Descrição não disponível.",
     )
 
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=prompt,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=career_profile
+        )
     )
     raw = response.text.strip()
 

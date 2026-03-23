@@ -175,6 +175,10 @@ class CareerAgent:
         # Always keep the current user message (last element) and up to 19 history items
         if len(self.history) > 20:
             self.history = self.history[-20:]
+            
+        # Hard cap on character length to prevent expensive context bloat (~10k tokens)
+        while sum(len(str(getattr(h, "parts", []))) for h in self.history) > 40000 and len(self.history) > 1:
+            self.history.pop(0)
 
         while attempt < max_attempts:
             attempt += 1
@@ -188,7 +192,7 @@ class CareerAgent:
                     step_count += 1
 
                     response = await self.client.aio.models.generate_content(
-                        model="gemini-flash-latest",
+                        model="gemini-2.5-flash",
                         contents=self.history,
                         config=config,
                     )

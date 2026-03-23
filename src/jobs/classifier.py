@@ -24,7 +24,7 @@ from src.bot.key_router import get_key_pool
 
 
 # Gemini API Configuration
-GEMINI_MODEL = "gemini-flash-latest"
+GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
 # Career summary — loaded from external file (gitignored) to protect personal data
@@ -54,10 +54,10 @@ CAREER_SUMMARY = _load_career_summary()
 
 _current_key_idx = 0
 
-def _call_gemini(prompt: str, tier: str = "free", max_retries: int = 3) -> dict | None:
+def _call_gemini(system_instruction: str, prompt: str, tier: str = "free", max_retries: int = 3) -> dict | None:
     """
     Call Gemini API with automatic retry on rate limits.
-    Handles truncated JSON from thinking models via partial recovery.
+    Utilizes Structured Outputs and Context Caching via systemInstruction.
     Supports a pool of API Keys for load balancing.
     """
     global _current_key_idx
@@ -68,20 +68,36 @@ def _call_gemini(prompt: str, tier: str = "free", max_retries: int = 3) -> dict 
     if not keys:
         return None
     
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 512,
+            "responseMimeType": "application/json",
+            "responseSchema": {
+                "type": "OBJECT",
+                "properties": {
+                    "llm_score": {"type": "INTEGER"},
+                    "seniority": {"type": "STRING", "enum": ["Jr", "Pleno", "Senior", "Lead", "Unknown"]},
+                    "company_tier": {"type": "STRING", "enum": ["Large", "Mid", "Startup", "Unknown"]},
+                    "fit_reason": {"type": "STRING"},
+                    "red_flags": {"type": "STRING"},
+                    "verdict": {"type": "STRING", "enum": ["APPLY", "MAYBE", "SKIP"]}
+                },
+                "required": ["llm_score", "seniority", "company_tier", "fit_reason", "red_flags", "verdict"]
+            }
+        }
+    }
+    
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+    
     for attempt in range(max_retries):
         try:
             current_key = keys[_current_key_idx]
             response = httpx.post(
                 f"{GEMINI_API_URL}?key={current_key}",
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "temperature": 0.1,
-                        "maxOutputTokens": 512,          # JSON output is small (~200 tokens)
-                        "response_mime_type": "application/json",  # Structured output guarantee
-                        # "thinkingConfig": {"thinkingBudget": 0}    # Disable thinking for speed - removed for flash
-                    },
-                },
+                json=payload,
                 timeout=45,
             )
             
@@ -98,23 +114,9 @@ def _call_gemini(prompt: str, tier: str = "free", max_retries: int = 3) -> dict 
             
             # Gemini 2.5 thinking models: last part = actual output
             parts = data["candidates"][0]["content"]["parts"]
-            text = parts[-1].get("text", "")
-            text = text.strip()
+            text = parts[-1].get("text", "").strip()
             
-            # Clean markdown code blocks
-            if text.startswith("```"):
-                text = re.sub(r"```(?:json)?\s*", "", text)
-                text = text.rstrip("`").strip()
-            
-            # Try full JSON parse
-            try:
-                json_match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group())
-                return json.loads(text)
-            except json.JSONDecodeError:
-                # Partial JSON recovery for truncated responses
-                return _extract_partial_json(text)
+            return json.loads(text)
                 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
@@ -195,12 +197,14 @@ def classify_job(title: str, company: str, location: str, description: str, tier
     learned_prefs = _LEARNED_PREFS_PATH.read_text(encoding="utf-8").strip() if _LEARNED_PREFS_PATH.exists() else ""
     prefs_section = f"\n[COMPETÊNCIAS APRENDIDAS - O usuário prioriza estas características (dê MUITO MAIS PESO no llm_score se bater com isso)]:\n{learned_prefs}\n" if learned_prefs else ""
     
-    prompt = f"""Você é um estrategista de carreira pragmático e focado em resultados reais.
+    system_instruction = f"""Você é um estrategista de carreira pragmático e focado em resultados reais.
 Sua missão é avaliar vagas para o candidato abaixo, que busca a efetivação no mercado como Analista, deixando para trás o título de estagiário. 
 
 {CAREER_SUMMARY}
 {prefs_section}
-JOB:
+"""
+
+    prompt = f"""JOB:
 Title: {title}
 Company: {company}
 Location: {location}
@@ -212,16 +216,6 @@ DIRETRIZES DE PENSAMENTO:
 3. Fit Técnico: A vaga pede habilidades do candidato? Considere TANTO habilidades técnicas (SQL, Python, Dashboards) QUANTO habilidades de produto/ops (priorização, stakeholders, jornada do usuário, processos).
 4. Veredito: Seja encorajador mas realista. O candidato se destaca tanto como bridge entre Produto e Engenharia (Product Ops) quanto como Analista de Dados com impacto em negócio.
 
-Respond ONLY with JSON (no markdown):
-{{
-    "llm_score": <0-100>,
-    "seniority": "<Jr|Pleno|Senior|Lead|Unknown>",
-    "company_tier": "<Large|Mid|Startup|Unknown>",
-    "fit_reason": "<Parágrafo ácido e honesto analisando a qualidade da vaga. Destaque o impacto (GMV, Automação)>",
-    "red_flags": "<Preocupações de ser operacional demais ou 'None'>",
-    "verdict": "<APPLY|MAYBE|SKIP>"
-}}
-
 SCORING:
 - 90-100: Perfect (right seniority/tier combination, great company, exact fit)
 - 70-89: Good (mostly fits, worth applying)
@@ -231,7 +225,7 @@ SCORING:
 Be strict. Jr at unknown consulting = <40. Jr/Pleno at Large Fintech = >75.
 """
 
-    result = _call_gemini(prompt, tier=tier)
+    result = _call_gemini(system_instruction, prompt, tier=tier)
     
     if result is None:
         return _default_result("LLM unavailable")
