@@ -1,173 +1,86 @@
-# 🎯 JobHunter
+# 🎯 JobHunter — Agentic AI Recruiter
 
-**AI-powered job hunting pipeline that finds, scores, and tracks the best job opportunities for you.**
+**O seu "Agente Autônomo" focado em Recrutamento: Varre, rastreia, pontua e notifica as melhores oportunidades direto no seu Telegram.**
 
-JobHunter scrapes job boards, scores each posting against your career profile using RAG (vector similarity) + Gemini LLM (deep analysis), and sends the top matches straight to your Telegram. It remembers every job it's seen, so you never get the same posting twice.
-
----
-
-## ⚡ How It Works
-
-```
-    Job Boards              RAG Scoring           Gemini LLM            You
-  ┌──────────┐         ┌──────────────┐      ┌──────────────┐     ┌──────────┐
-  │ LinkedIn │──scrape──│  Vector DB   │─rank─│  Deep Match  │─────│ Telegram │
-  │  Indeed  │         │ (ChromaDB)   │      │  Analysis    │     │   Bot    │
-  └──────────┘         └──────────────┘      └──────────────┘     └──────────┘
-                              │                     │                   │
-                        Your career docs      Score 0-100          Top matches
-                        as embeddings         + fit analysis       + insights
-```
-
-### Pipeline Phases
-
-| Phase | What happens | Tech |
-|-------|-------------|------|
-| **1. Scraping** | Searches LinkedIn + Indeed with 9 query combinations | `python-jobspy` |
-| **2. Geo-filter** | Removes jobs outside São Paulo metro area | keyword matching |
-| **3. Deduplication** | Merges duplicates across sources | SHA256 hash |
-| **4. RAG Scoring** | Compares job descriptions against your career docs | `ChromaDB` + `sentence-transformers` |
-| **5. LLM Classification** | Gemini analyzes fit, seniority, red flags, verdict | `Gemini 2.5 Flash` |
-| **6. SQLite Tracking** | Stores results, skips already-notified jobs | `SQLite` |
-| **7. Notification** | Sends new matches to Telegram with scores + insights | Telegram Bot API |
-| **8. CSV Export** | Saves daily results for review | CSV |
+O JobHunter ultrapassa os limites de um simples scraper. Ele é uma inteligência artificial agêntica que lê o mercado (LinkedIn, Gupy, Indeed), cruza cada vaga com o seu currículo através de Embeddings (RAG Ultraleve) e raciocina profundamente usando LLMs (Gemini). Ele elimina vagas ruins e envia os "Top Matches" num Bot de Telegram com botões interativos para Aplicações rápidas, Cover Letters instantâneas e resiliência de memória.
 
 ---
 
-## 🚀 Quick Start
+## ✨ Features Profissionais
 
-### 1. Clone & Install
+- 🖱️ **Telegram UI (Inline Buttons):** Controle total pelo chat. Ao receber um match perfeito, utilize botões integrados para marcar `[✅ Quero Aplicar]`, gerar `[📝 Cover Letter]`, agendar `[⏰ Lembretes]` ou descartar, atualizando seu banco de dados na nuvem sem precisar digitar um comando.
+- 🚦 **Hybrid Cost Routing (Free vs Paid):** Escala massiva com custo zero. O JobHunter inteligentemente usa chaves gratuitas do Gemini (Flash-Lite) para escaneamento inicial "sujo", e direciona chaves Pagas limitadas (via Google AI Studio) estritamente para análises de Fit detalhadas com Modelos Premium, assegurando que você extraia o máximo sem exaurir recursos (Denial of Wallet protection).
+- 🧠 **Server-less Vector RAG:** A dependência gigante do ChromaDB foi superada! Agora, todo o processo de Extração e Comparação de Sentido Oculto (RAG) é feito nativamente pela API de Embeddings do Gemini, livrando a máquina local de centenas de Mbs e permitindo deploys mais eficientes e baratos.
+- 🔗 **Análises On-Demand por URL:** Viu uma vaga perfeita pelo celular? É só colar o link para o Agente no Telegram. A Inteligência (Tools) acessa a URL, processa os dados invisíveis, te dá a nota e arquiva pro seu histórico sem disparar pipelines massivos.
+- 🛡️ **DevSecOps Integrado:** Nascido pronto pra produção. Contêineres em Docker processados sem vulnerabilidades Root e requisições HTTP travadas contra Server-Side Request Forgery (SSRF). Privilégio zero, segurança máxima.
 
+---
+
+## ⚡ Como Funciona a Pipeline?
+
+```text
+    Mercado (Web)             Vector Embeddings       LLM Reasoning             Você
+  ┌────────────┐         ┌────────────────┐      ┌─────────────┐     ┌───────────┐
+  │ JobSpy Web │──scrape─│ Gemini API SDK │─RAG──│ Gemini Free/│─────│ Telegram  │
+  │ (LinkedIn) │         │ (Zero-Storage) │      │ Paid Router │     │ Agent Bot │
+  └────────────┘         └────────────────┘      └─────────────┘     └───────────┘
+```
+
+A arquitetura moderna foi pensada para Cloud. O seu `Bot` deve rodar no Railway hospedando o Banco SQLite de memória, enquanto o pesado GitHub Actions pode rodar a esteira diária sem exaurir a sua hospedagem paga.
+
+---
+
+## 🚀 Quick Start (Deploy via Railway)
+
+### 1. Clonar & Pré-Requisitos
 ```bash
 git clone https://github.com/kevynlad/JobHunter.git
 cd JobHunter
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-pip install -e .
 ```
 
-### 2. Configure
-
+### 2. Configurar o Setup
+Copie os modelos do ambiente:
 ```bash
-# Copy the example files
 cp .env.example .env
 cp career_summary.example.txt career_summary.txt
 ```
 
-Edit `.env` with your API keys:
+Preencha seu `.env` com a sua malha de chaves (`GEMINI_API_KEYS` separadas por vírgula pro uso gratuito e sua chave principal paga para funções Premium do bot).
+Adicione as informações de Identidade no seu arquivo estruturado na pasta `data/career/`.
 
-```env
-GEMINI_API_KEYS=your_gemini_key_1,your_gemini_key_2
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-RAPIDAPI_KEY=your_rapidapi_key  # optional, for JSearch
-```
+### 3. Subir e Rodar
+A aplicação já possui os arquivos `Dockerfile` seguro e `railway.toml`. Sincronize com o GitHub, crie o seu projeto no painel do [Railway](https://railway.app), e lembre-se de criar um **Persistent Volume** vinculando a pasta raiz `/app/data/` para que o seu SQLite (`jobs.db`) nunca evapore entre builds.
 
-Edit `career_summary.txt` with your career profile (the AI uses this to evaluate fit).
-
-### 3. Ingest Your Career Documents
-
-Place your resume, certificates, and career docs in `data/career/`, then:
-
+Caso queira usar apenas no seu PC (Modo Legado CLI):
 ```bash
-python -m src.rag.ingest
-```
-
-This creates vector embeddings of your documents in ChromaDB for RAG scoring.
-
-### 4. Run the Pipeline
-
-```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
 python -m src.pipeline
 ```
 
-Or via the CLI:
+---
+
+## ⌨️ Interface CLI
+Além de você operar interativamente toda a vida digital de recrutamento pelo celular no Telegram, os comandos para uso via terminal permanecem vivos:
 
 ```bash
-python -m src.cli run
+python -m src.cli stats           # 📊 Resumo diário de todas as vagas mapeadas
+python -m src.cli new             # 🆕 Vagas prontas para agir
+python -m src.cli run             # 🚀 Dá Start a força no Scraper
 ```
 
 ---
 
-## ⌨️ CLI Commands
+## 🗺️ Roadmap Atualizado
 
-```bash
-python -m src.cli stats           # 📊 Summary of all tracked jobs
-python -m src.cli new             # 🆕 Jobs you haven't acted on
-python -m src.cli applied         # ✅ Jobs you've applied to
-python -m src.cli search "query"  # 🔍 Search by title or company
-python -m src.cli mark ID applied # ✏️ Mark a job as applied/skipped
-python -m src.cli detail ID       # 🔎 Full details of a specific job
-python -m src.cli all             # 📋 All tracked jobs
-python -m src.cli run             # 🚀 Run the full pipeline
-```
-
----
-
-## 🏗️ Project Structure
-
-```
-JobHunter/
-├── src/
-│   ├── pipeline.py          # Main orchestrator — runs all phases
-│   ├── cli.py               # Terminal interface with rich tables
-│   ├── jobs/
-│   │   ├── sources.py       # Job scraping (LinkedIn, Indeed via JobSpy)
-│   │   ├── matcher.py       # Geo-filter + dedup + RAG scoring
-│   │   ├── classifier.py    # Gemini LLM deep analysis
-│   │   ├── database.py      # SQLite persistence + dedup tracking
-│   │   ├── models.py        # Data models (JobPosting, ScoredJob)
-│   │   └── config.py        # Search queries, career paths, keywords
-│   ├── rag/
-│   │   ├── ingest.py        # Converts career docs → ChromaDB vectors
-│   │   └── retriever.py     # Queries ChromaDB for relevant career chunks
-│   └── notify/
-│       ├── telegram.py      # Telegram Bot API integration
-│       └── scheduler.py     # Cron-like scheduler (2x daily)
-├── data/
-│   ├── career/              # Your career docs (gitignored)
-│   ├── chroma_db/           # Vector DB (generated, gitignored)
-│   └── jobs.db              # SQLite tracker (gitignored)
-├── output/                  # Daily CSV exports (gitignored)
-├── career_summary.txt       # Your AI profile (gitignored)
-├── career_summary.example.txt  # Template for new users
-├── .env                     # API keys (gitignored)
-├── .env.example             # Template for new users
-└── pyproject.toml           # Dependencies
-```
-
----
-
-## 🔧 Tech Stack
-
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| **Scraping** | `python-jobspy` | Aggregates LinkedIn + Indeed |
-| **RAG** | `ChromaDB` + `sentence-transformers` (MiniLM) | Vector similarity scoring |
-| **LLM** | `Gemini 2.5 Flash` (free tier) | Deep job-fit analysis |
-| **Database** | `SQLite` | Job tracking + dedup |
-| **Notification** | Telegram Bot API | Mobile alerts |
-| **CLI** | `typer` + `rich` | Terminal interface |
-| **Language** | Python 3.11+ | Everything |
-
----
-
-## 🗺️ Roadmap
-
-- [x] Multi-source job scraping (LinkedIn + Indeed)
-- [x] RAG scoring with career document embeddings
-- [x] Gemini LLM classification with detailed fit analysis
-- [x] Telegram notifications with scores and insights
-- [x] SQLite job tracking with deduplication
-- [x] CLI for job management
-- [ ] **GitHub Actions** — Automated 2x daily pipeline runs (no PC needed)
-- [ ] **Telegram Inline Buttons** — Mark jobs as Applied/Skipped from your phone
-- [ ] **AI Resume Generator** — Custom CVs tailored to each job description
-- [ ] **Cloud Database** — Migrate SQLite to Turso for mobile-first access
-- [ ] **Analytics Dashboard** — Track application rates, response rates, trends
+O limite para o Agente está longe. Próximas missões de Arquitetura:
+- [ ] **SaaS Multi-Tenant:** Migrar do conceito Mono-User para escalada onde cada usuário interage apenas com o seu banco, com os próprios documentos RAG e parâmetros.
+- [ ] **Cloud Database Native:** Substituir por definitivo a dependência SQLite volumétrica isolada e escalar os profiles multi-usuários em um SQLaaS tipo Turso ou Neon de baixa latência.
+- [ ] **Agentic Crawler:** Substituir os recortes brutos de scraping pela delegação visual direta de um Browser-Use Agent para extrair dados sem limites de captcha.
 
 ---
 
 ## 📝 License
 
-MIT — Use it, fork it, make it yours.
+MIT — Hackeie de volta a sua busca de emprego.
