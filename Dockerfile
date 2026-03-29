@@ -17,5 +17,9 @@ RUN pip install --no-cache-dir -r requirements-bot.txt
 # Copy all source code
 COPY . .
 
+# Create and switch to non-root user
+RUN useradd -m appuser
+USER appuser
+
 # Run the bot
 CMD ["python", "-m", "src.bot.main"]

@@ -11,6 +11,8 @@ import httpx
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from pathlib import Path
+import logging
+from urllib.parse import urlparse
 
 from src.rag.retriever import score_job
 from src.jobs.classifier import classify_job
@@ -54,7 +56,8 @@ def get_recent_jobs(days: int = 7, limit: int = 10) -> str:
         jobs = [dict(zip(cols, row)) for row in rows]
         return json.dumps({"jobs": jobs, "count": len(jobs)}, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": str(e)})
+        logging.exception("Erro técnico ao buscar vagas recentes")
+        return json.dumps({"error": "Ocorreu um erro interno ao buscar as vagas remotas. Verifique os logs."})
 
 
 def get_job_detail(job_id: str = "", company: str = "", title: str = "") -> str:
@@ -91,7 +94,8 @@ def get_job_detail(job_id: str = "", company: str = "", title: str = "") -> str:
 
         return json.dumps(dict(zip(cols, row)), ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": str(e)})
+        logging.exception(f"Erro técnico ao detalhar vaga: {job_id} / {company} / {title}")
+        return json.dumps({"error": "Ocorreu um erro interno ao detalhar a vaga. Verifique os logs."})
 
 
 def update_job_status(job_id: str, status: str) -> str:
@@ -122,7 +126,8 @@ def update_job_status(job_id: str, status: str) -> str:
         conn.close()
         return json.dumps({"success": True, "job_id": job_id, "new_status": status})
     except Exception as e:
-        return json.dumps({"error": str(e)})
+        logging.exception(f"Erro técnico ao atualizar status da vaga {job_id}")
+        return json.dumps({"error": "Ocorreu um erro interno ao atualizar o status. Verifique os logs."})
 
 
 def get_application_stats() -> str:
@@ -152,7 +157,8 @@ def get_application_stats() -> str:
             ]
         }, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": str(e)})
+        logging.exception("Erro técnico ao buscar estatísticas de aplicações")
+        return json.dumps({"error": "Ocorreu um erro interno ao buscar estatísticas. Verifique os logs."})
 
 
 def get_pending_followups() -> str:
@@ -176,7 +182,8 @@ def get_pending_followups() -> str:
         ]
         return json.dumps({"pending": jobs, "count": len(jobs)}, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": str(e)})
+        logging.exception("Erro técnico ao buscar pendências de followup")
+        return json.dumps({"error": "Ocorreu um erro interno ao buscar os follow-ups pendentes. Verifique os logs."})
 
 
 def analyze_and_save_url(url: str) -> str:
@@ -184,9 +191,20 @@ def analyze_and_save_url(url: str) -> str:
     Fetch a job URL, read text, score it, classify it, and save it to the DB if good.
     """
     try:
+        # Validate URL to prevent SSRF
+        parsed_url = urlparse(url)
+        if parsed_url.scheme != 'https':
+            return json.dumps({"error": "Apenas URLs seguras (https://) são permitidas."})
+            
+        # Basic check to reject common metadata/local IP formats
+        hostname = parsed_url.hostname or ""
+        if hostname == "169.254.169.254" or hostname.startswith("127.") or hostname.startswith("10.") or hostname.startswith("192.168."):
+            logging.warning(f"Tentativa de SSRF bloqueada para o host: {hostname}")
+            return json.dumps({"error": "Acesso a endereços internos não é permitido."})
+
         # 1. Fetch text
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+        with httpx.Client(timeout=10.0, follow_redirects=False) as client:
             resp = client.get(url, headers=headers)
             resp.raise_for_status()
             
@@ -250,9 +268,11 @@ def analyze_and_save_url(url: str) -> str:
         }, ensure_ascii=False)
         
     except httpx.HTTPError as e:
-        return json.dumps({"error": f"Erro ao acessar a URL: {str(e)}"})
+        logging.exception(f"Erro HTTP ao acessar URL: {url}")
+        return json.dumps({"error": "Erro de conexão ao acessar a URL. Verifique os logs."})
     except Exception as e:
-        return json.dumps({"error": f"Erro ao analisar vaga: {str(e)}"})
+        logging.exception(f"Erro geral ao analisar URL: {url}")
+        return json.dumps({"error": "Erro interno ao processar e salvar a vaga pela URL. Verifique os logs."})
 
 
 def learn_from_job(job_id: str) -> str:
@@ -288,7 +308,8 @@ def learn_from_job(job_id: str) -> str:
             
         return json.dumps({"success": True, "learned_keywords": keywords}, ensure_ascii=False)
     except Exception as e:
-        return json.dumps({"error": f"Erro ao aprender com a vaga: {str(e)}"})
+        logging.exception(f"Erro técnico ao aprender com a vaga {job_id}")
+        return json.dumps({"error": "Ocorreu um erro interno ao tentar processar o aprendizado da vaga. Verifique os logs."})
 
 
 # ---------- GEMINI FUNCTION DECLARATIONS ----------
