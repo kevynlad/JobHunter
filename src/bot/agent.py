@@ -209,7 +209,9 @@ class CareerAgent:
 
                     tool_parts = []
                     for call in tool_calls:
-                        result = self._execute_tool(call.name, dict(call.args))
+                        args = dict(call.args)
+                        args['user_id'] = self.user_id
+                        result = self._execute_tool(call.name, args)
                         tool_parts.append(types.Part.from_function_response(
                             name=call.name,
                             response={"result": result},
