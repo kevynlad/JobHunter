@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 from src.jobs.matcher import search_and_match, print_results
 from src.jobs.classifier import classify_jobs_batch
-from src.jobs.database import upsert_job, get_unnotified_jobs, mark_notified, make_job_id
+from src.db.jobs import upsert_job, get_unnotified_jobs, mark_notified, make_job_id
 from src.notify.telegram import send_telegram_message, send_job_cards_with_buttons
 
 
@@ -44,10 +44,13 @@ MIN_JOBS_TO_NOTIFY = 5          # Need at least this many good jobs
 MAX_JOBS_IN_NOTIFICATION = 15   # Show at most this many in Telegram
 
 
-def run_pipeline() -> dict:
+def run_pipeline(user_id: int | None = None) -> dict:
     """
-    🚀 Run the full JobHunter pipeline.
+    Run the full JobHunter pipeline for a specific user.
+    If user_id is None, reads TELEGRAM_CHAT_ID from env (legacy/local mode).
     """
+    if user_id is None:
+        user_id = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
     try:
         logger.info("=" * 60)
         logger.info(f"  🚀 JobHunter Pipeline")
@@ -63,7 +66,7 @@ def run_pipeline() -> dict:
         # --- Step 1: Search + RAG Score ---
         logger.info("\n📌 Step 1: Searching and RAG scoring jobs...")
         try:
-            all_scored = search_and_match(min_score=0)
+            all_scored = search_and_match(min_score=0, user_id=user_id)
         except Exception as e:
             logger.error(f"❌ search_and_match failed: {e}", exc_info=True)
             all_scored = []
@@ -78,7 +81,17 @@ def run_pipeline() -> dict:
             if rag_candidates:
                 # --- Step 3: Classify with Gemini LLM (FREE TIER for background) ---
                 logger.info("\n📌 Step 2: Deep analysis with Gemini AI (FREE Tier)...")
-                classified = classify_jobs_batch(rag_candidates, max_classify=30, tier="paid")
+                from src.db.users import get_user
+                user_data = get_user(user_id)
+                career_summary = user_data["career_summary"] if user_data else None
+                
+                classified = classify_jobs_batch(
+                    rag_candidates, 
+                    max_classify=30, 
+                    tier="paid", 
+                    user_id=user_id,
+                    career_summary=career_summary
+                )
                 
                 # --- Step 4: Combined ranking + Filtering ---
                 for sj in classified:
@@ -93,25 +106,25 @@ def run_pipeline() -> dict:
             else:
                 logger.info("No candidates passed RAG threshold.")
         
-        # --- Step 5: Save to SQLite ---
+        # --- Step 5: Save to PostgreSQL ---
         logger.info("\n💾 Saving results to database...")
         new_count = 0
         to_save = good_matches if good_matches else classified
         for sj in to_save:
-            is_new = upsert_job(sj)
+            is_new = upsert_job(sj, user_id=user_id)
             if is_new:
                 new_count += 1
         logger.info(f"  Saved {len(to_save)} jobs ({new_count} new)")
         
         # --- Step 6: Notify via Telegram (only NEW matches) ---
-        unnotified = get_unnotified_jobs()
+        unnotified = get_unnotified_jobs(user_id=user_id)
         if unnotified:
             logger.info(f"\n📱 Sending Telegram notification ({len(unnotified)} new matches)...")
             jobs_to_send = unnotified[:MAX_JOBS_IN_NOTIFICATION]
             success = send_job_cards_with_buttons(jobs_to_send, total_analyzed=len(all_scored))
             notified = success
             if success:
-                mark_notified([j['job_id'] for j in unnotified])
+                mark_notified([j['job_id'] for j in unnotified], user_id=user_id)
                 logger.info("✅ Telegram sent successfully")
             else:
                 logger.error("❌ Telegram failed")

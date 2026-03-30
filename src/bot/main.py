@@ -24,13 +24,12 @@ from telegram.ext import (
 
 from src.bot.handlers import (
     handle_message,
-    handle_start,
     handle_callback,
     handle_pipeline_command,
     handle_stats_command,
 )
+from src.bot.onboarding import handle_start, handle_set_key, handle_set_profile
 from src.bot.triggers import setup_triggers
-from src.jobs.database import init_db, DB_PATH
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -56,32 +55,42 @@ def run_healthcheck_server():
     server.serve_forever()
 
 
-def main():
+def create_app() -> Application:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
-        raise ValueError("TELEGRAM_BOT_TOKEN is not set! Check your .env file.")
-
-    # Start the HTTP server in a background thread for Railway healthcheck
-    threading.Thread(target=run_healthcheck_server, daemon=True).start()
-
-    # Ensure DB is initialized with the updated schema
-    init_db()
+        raise ValueError("TELEGRAM_BOT_TOKEN is not set! Check sua chave no .env.")
 
     app = Application.builder().token(token).build()
 
     # Handlers — order matters: specific before generic
-    app.add_handler(CommandHandler("start", handle_start))
-    app.add_handler(CommandHandler("pipeline", handle_pipeline_command))
-    app.add_handler(CommandHandler("stats", handle_stats_command))
+    app.add_handler(CommandHandler("start",       handle_start))
+    app.add_handler(CommandHandler("set_key",     handle_set_key))
+    app.add_handler(CommandHandler("set_profile", handle_set_profile))
+    app.add_handler(CommandHandler("pipeline",    handle_pipeline_command))
+    app.add_handler(CommandHandler("stats",       handle_stats_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Proactive triggers (follow-ups, weekly digest)
-    setup_triggers(app.job_queue)
+    if app.job_queue:
+        setup_triggers(app.job_queue)
 
-    logger.info("🤖 CareerBot is running. Press Ctrl+C to stop.")
+    return app
+
+
+def main():
+    """Local Testing Entrypoint with Long Polling"""
+    logger.info("Starting local polling... (Not for Vercel/Serverless)")
+    
+    # Start the HTTP server in a background thread for Railway healthcheck (Legacy)
+    port = int(os.getenv("PORT", 8080))
+    if os.getenv("RAILWAY_ENVIRONMENT"):
+        threading.Thread(target=run_healthcheck_server, daemon=True).start()
+
+    app = create_app()
+
+    logger.info("🤖 CareerBot is running natively. Press Ctrl+C to stop.")
     app.run_polling(allowed_updates=["message", "callback_query"])
-
 
 if __name__ == "__main__":
     main()

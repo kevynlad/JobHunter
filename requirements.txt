@@ -25,3 +25,13 @@ pandas>=2.0.0
 
 # NOTE: chromadb and sentence-transformers REMOVED (were ~520MB)
 # RAG now uses Gemini text-embedding-004 API + JSON vector store (~50KB)
+
+# PostgreSQL (replaces SQLite for multi-tenant cloud DB)
+psycopg2-binary>=2.9.9
+
+# BYOK key encryption (AES-256 Fernet)
+cryptography>=42.0.0
+
+# Vercel Webhook / Serverless API
+fastapi>=0.110.0
+uvicorn>=0.29.0

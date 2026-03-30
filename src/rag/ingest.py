@@ -186,6 +186,57 @@ def ingest_documents() -> dict:
     return build_vector_db()
 
 
+async def build_vector_db_for_user(user_id: int, career_text: str) -> dict:
+    """
+    Build embeddings for a specific user's career text and return the vector store dict.
+    Does NOT save to file — caller saves to DB via set_career_profile().
+    """
+    chunks = split_into_chunks(career_text)
+    if not chunks:
+        return {}
+
+    print(f"  Embedding {len(chunks)} chunks for user {user_id}...")
+    embeddings = _embed_texts(chunks)
+
+    return {
+        "chunks": chunks,
+        "metadatas": [{"source": "career_profile", "chunk_idx": i} for i in range(len(chunks))],
+        "embeddings": embeddings,
+        "model": EMBEDDING_MODEL,
+    }
+
+
+def build_and_save_vectors_for_user(user_id: int, career_text: str | None = None) -> bool:
+    """
+    Sync version: builds embeddings from career_text (or career_summary.txt)
+    and saves to Supabase users table. Used by migration / admin scripts.
+    """
+    import asyncio
+    if not career_text:
+        career_text = Path(__file__).parent.parent.parent / "career_summary.txt"
+        if Path(career_text).exists():
+            career_text = Path(career_text).read_text(encoding="utf-8")
+        else:
+            career_text = os.getenv("CAREER_SUMMARY", "")
+    if not career_text:
+        print(f"[!] No career text found for user {user_id}")
+        return False
+
+    chunks = split_into_chunks(career_text)
+    embeddings = _embed_texts(chunks)
+    vectors = {
+        "chunks": chunks,
+        "metadatas": [{"source": "career_profile", "chunk_idx": i} for i in range(len(chunks))],
+        "embeddings": embeddings,
+        "model": EMBEDDING_MODEL,
+    }
+
+    from src.db.users import set_career_profile
+    set_career_profile(user_id, career_summary=career_text, career_vectors=vectors)
+    print(f"[OK] Vectors saved for user {user_id} ({len(chunks)} chunks)")
+    return True
+
+
 if __name__ == "__main__":
     result = build_vector_db()
     print(f"\nResult: {result}")

@@ -49,12 +49,12 @@ def _load_career_summary() -> str:
     return "No career summary configured."
 
 
-CAREER_SUMMARY = _load_career_summary()
+CAREER_SUMMARY = _load_career_summary()  # fallback for local/legacy runs
 
 
 _current_key_idx = 0
 
-def _call_gemini(system_instruction: str, prompt: str, tier: str = "free", max_retries: int = 3) -> dict | None:
+def _call_gemini(system_instruction: str, prompt: str, tier: str = "free", max_retries: int = 3, user_id: int | None = None) -> dict | None:
     """
     Call Gemini API with automatic retry on rate limits.
     Utilizes Structured Outputs and Context Caching via systemInstruction.
@@ -64,7 +64,7 @@ def _call_gemini(system_instruction: str, prompt: str, tier: str = "free", max_r
     
     # Use the specified tier key pool
     from src.bot.key_router import get_key_pool
-    keys = get_key_pool(tier)
+    keys = get_key_pool(tier, user_id=user_id)
     if not keys:
         return None
     
@@ -188,11 +188,20 @@ def _extract_partial_json(text: str) -> dict | None:
     return result if "llm_score" in result else None
 
 
-def classify_job(title: str, company: str, location: str, description: str, tier: str = "free") -> dict:
+def classify_job(
+    title: str,
+    company: str,
+    location: str,
+    description: str,
+    tier: str = "free",
+    user_id: int | None = None,
+    career_summary: str | None = None,
+) -> dict:
     """
     Predict match score and extract metadata via Gemini LLM.
-    Returns a dict with: llm_score, seniority, company_tier, fit_reason, red_flags, verdict.
+    career_summary: per-user summary (from DB). Falls back to global if None.
     """
+    active_summary = career_summary or CAREER_SUMMARY
     desc_truncated = (description[:4000] + "...") if description and len(description) > 4000 else (description or "No description provided.")
     
     learned_prefs = _LEARNED_PREFS_PATH.read_text(encoding="utf-8").strip() if _LEARNED_PREFS_PATH.exists() else ""
@@ -201,7 +210,7 @@ def classify_job(title: str, company: str, location: str, description: str, tier
     system_instruction = f"""Você é um estrategista de carreira pragmático e focado em resultados reais.
 Sua missão é avaliar vagas para o candidato abaixo, que busca a efetivação no mercado como Analista, deixando para trás o título de estagiário. 
 
-{CAREER_SUMMARY}
+{active_summary}
 {prefs_section}
 """
 
@@ -226,7 +235,7 @@ SCORING:
 Be strict. Jr at unknown consulting = <40. Jr/Pleno at Large Fintech = >75.
 """
 
-    result = _call_gemini(system_instruction, prompt, tier=tier)
+    result = _call_gemini(system_instruction, prompt, tier=tier, user_id=user_id)
     
     if result is None:
         return _default_result("LLM unavailable")
@@ -241,15 +250,19 @@ Be strict. Jr at unknown consulting = <40. Jr/Pleno at Large Fintech = >75.
     }
 
 
-def classify_jobs_batch(scored_jobs: list, max_classify: int = 60, tier: str = "free") -> list:
+def classify_jobs_batch(
+    scored_jobs: list,
+    max_classify: int = 60,
+    tier: str = "free",
+    user_id: int | None = None,
+    career_summary: str | None = None,
+) -> list:
     """
     Classify the top RAG-scored jobs with Gemini.
-    
-    tier="free" -> zero cost, but sets a ~4.5s delay per job (safely under 15 RPM).
-    tier="paid" -> near-instant (0.5s delay), costs money.
+    career_summary: per-user summary for personalized analysis.
     """
     from src.bot.key_router import get_key_pool
-    keys = get_key_pool(tier)
+    keys = get_key_pool(tier, user_id=user_id)
     
     to_classify = scored_jobs[:max_classify]
     skip_count = len(scored_jobs) - len(to_classify)
@@ -270,7 +283,9 @@ def classify_jobs_batch(scored_jobs: list, max_classify: int = 60, tier: str = "
             company=sj.job.company,
             location=sj.job.location,
             description=sj.job.description,
-            tier=tier
+            tier=tier,
+            user_id=user_id,
+            career_summary=career_summary,
         )
         
         # Merge results into the ScoredJob object

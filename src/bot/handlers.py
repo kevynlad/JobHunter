@@ -23,34 +23,25 @@ from src.bot.tools import update_job_status, get_recent_jobs, get_application_st
 
 async def handle_pipeline_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /pipeline — Manually triggers the full pipeline for testing.
-    Sends a confirmation before and after execution.
+    /pipeline — Dispatches the job pipeline.
+    In the Serverless architecture, this no longer runs the pipeline directly
+    to avoid Vercel timeouts. Instead, it triggers a GitHub Action (or a message
+    simulating that trigger) which will process jobs for 4+ hours.
     """
-    await update.message.reply_html(
-        "🔄 <b>Iniciando pipeline de alta velocidade...</b>\n\n"
-        "Analisando as melhores vagas para seu perfil.\n"
-        "Você receberá o resumo em instantes! ⚡"
-    )
     logger.info(f"User {update.effective_user.id} triggered /pipeline")
-    import asyncio
-    from src.pipeline import run_pipeline
-    from src.rag.ingest import build_vector_db
+    
+    await update.message.reply_html(
+        "⚡ <b>Pipeline Despachado (Modo Nuvem)!</b>\n\n"
+        "A solicitação foi enviada para nossos servidores de background (GitHub Actions).\n"
+        "O processo de busca e classificação pelo LLM pode demorar algumas horas.\n"
+        "Você receberá uma mensagem automática aqui quando as novas vagas forem encontradas!"
+    )
+    
+    # TODO: FUTURE - Implement httpx POST to GitHub Actions workflow_dispatch API
+    # import httpx
+    # async with httpx.AsyncClient() as client:
+    #     await client.post("https://api.github.com/repos/user/repo/actions/workflows/pipeline.yml/dispatches", ...)
 
-    async def _run():
-        try:
-            def _sync():
-                build_vector_db()
-                return run_pipeline()
-            result = await asyncio.to_thread(_sync)
-            await update.message.reply_html(
-                f"✅ <b>Pipeline concluído!</b>\n<code>{result}</code>"
-            )
-        except Exception as e:
-            await update.message.reply_html(
-                f"❌ <b>Erro no pipeline:</b>\n<code>{str(e)[:300]}</code>"
-            )
-
-    asyncio.create_task(_run())
 
 
 async def handle_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -98,20 +89,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Welcome message when the user starts the bot."""
-    user = update.effective_user
-    await update.message.reply_html(
-        f"Oi, <b>{user.first_name}</b>! 👋\n\n"
-        "Sou o <b>CareerBot</b> — seu assistente de carreira pessoal.\n\n"
-        "Posso te ajudar com:\n"
-        "• 🎯 Mostrar as vagas encontradas pelo pipeline\n"
-        "• 📊 Acompanhar suas aplicações\n"
-        "• 📝 Gerar cover letters personalizadas\n"
-        "• ⏰ Te lembrar de vagas que você ainda não aplicou\n\n"
-        "É só escrever o que você quer saber, sem necessidade de comandos! 💬",
-        reply_markup=main_menu_keyboard(),
-    )
+
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):

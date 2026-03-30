@@ -27,11 +27,41 @@ from dotenv import load_dotenv
 
 from src.jobs.models import JobPosting, ScoredJob, SearchFilters
 from src.jobs.sources import get_all_sources
-from src.jobs.config import CAREER_PATHS, LOCATIONS, INCLUDE_REMOTE, MAX_DAYS_OLD, RESULTS_PER_QUERY, MIN_MATCH_SCORE
+from src.jobs.config import CAREER_PATHS as DEFAULT_CAREER_PATHS, LOCATIONS as DEFAULT_LOCATIONS, INCLUDE_REMOTE, MAX_DAYS_OLD, RESULTS_PER_QUERY, MIN_MATCH_SCORE, is_sp_metro_area
 import logging
 from src.rag.retriever import score_jobs_batch
 
 logger = logging.getLogger(__name__)
+
+
+def _get_user_search_config(user_id: int | None) -> dict:
+    """
+    Load per-user search config from DB.
+    Falls back to config.py defaults if user has no config (or user_id is None).
+    """
+    if user_id is not None:
+        try:
+            from src.db.connection import get_conn
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT search_config FROM users WHERE user_id = %s AND search_config IS NOT NULL",
+                        (user_id,)
+                    )
+                    row = cur.fetchone()
+            if row and row[0]:
+                return row[0]  # psycopg2 returns JSONB as dict
+        except Exception as e:
+            logger.warning(f"Could not load search_config for user {user_id}: {e}. Using defaults.")
+
+    # Fallback to hardcoded config.py
+    return {
+        "career_paths": DEFAULT_CAREER_PATHS,
+        "locations": DEFAULT_LOCATIONS,
+        "include_remote": INCLUDE_REMOTE,
+        "max_days_old": MAX_DAYS_OLD,
+        "results_per_query": RESULTS_PER_QUERY,
+    }
 
 
 # Load environment variables
@@ -62,6 +92,9 @@ def search_career_path(
     career_path: dict,
     sources: list,
     days_old: int = 7,
+    locations: list[str] | None = None,
+    include_remote: bool = True,
+    results_per_query: int = 100,
 ) -> list[JobPosting]:
     """
     Search all sources for ONE career path.
@@ -74,29 +107,29 @@ def search_career_path(
     """
     path_name = career_path["name"]
     queries = career_path["queries"]
+    _locations = locations or DEFAULT_LOCATIONS
     all_jobs: list[JobPosting] = []
-    
-    print(f"\n  📂 Career Path: {path_name}")
+
+    print(f"\n  Career Path: {path_name} ({len(queries)} queries)")
     print(f"  {'─' * 50}")
-    
+
     for query in queries:
-        for location in LOCATIONS:
+        for location in _locations:
             for source in sources:
-                label = f"    {source.name} → \"{query}\" in {location}"
+                label = f"    {source.name} -> \"{query}\" in {location}"
                 print(f"{label}...", end=" ")
-                
+
                 jobs = source.search(
                     query=query,
                     location=location,
-                    limit=RESULTS_PER_QUERY,
+                    limit=results_per_query,
                     days_old=days_old,
                     remote_only=False,
                 )
                 print(f"({len(jobs)} jobs)")
                 all_jobs.extend(jobs)
-        
-        # Also search remote-only if configured
-        if INCLUDE_REMOTE:
+
+        if include_remote:
             for source in sources:
                 if source.name == "jsearch":  # JSearch has a remote filter
                     label = f"    {source.name} → \"{query}\" (Remote Brazil)"
@@ -119,49 +152,58 @@ def search_career_path(
     return unique
 
 
-def search_and_match(min_score: float = 0) -> list[ScoredJob]:
+def search_and_match(min_score: float = 0, user_id: int | None = None) -> list[ScoredJob]:
     """
-    🚀 MAIN FUNCTION — Full search + score pipeline.
-    
-    Searches across all career paths, deduplicates,
-    scores with RAG, and returns ranked results.
+    Main function: full search + score pipeline, per-user config from DB.
     """
+    cfg = _get_user_search_config(user_id)
+    career_paths   = cfg.get("career_paths", DEFAULT_CAREER_PATHS)
+    locations      = cfg.get("locations", DEFAULT_LOCATIONS)
+    include_remote = cfg.get("include_remote", INCLUDE_REMOTE)
+    max_days_old   = cfg.get("max_days_old", MAX_DAYS_OLD)
+    results_per_q  = cfg.get("results_per_query", RESULTS_PER_QUERY)
+
     print("=" * 60)
-    print("  🔍 JOB SEARCH — Starting")
-    print(f"  Recency: last {MAX_DAYS_OLD} days")
-    print(f"  Locations: {', '.join(LOCATIONS)}")
-    print(f"  Remote: {'Yes' if INCLUDE_REMOTE else 'No'}")
+    print(f"  JOB SEARCH (user={user_id or 'default'})")
+    print(f"  Locations: {', '.join(locations)}")
+    print(f"  Paths: {len(career_paths)} career paths")
     print("=" * 60)
-    
-    # Get API keys from .env
+
     sources = get_all_sources(
         rapidapi_key=os.getenv("RAPIDAPI_KEY", ""),
     )
-    
-    # Search each career path
+
+    # Store per-path weight for score boosting
+    path_weights: dict[str, float] = {
+        cp["name"]: cp.get("weight", 1.0) for cp in career_paths
+    }
+
     all_jobs: list[JobPosting] = []
-    job_career_path: dict[str, str] = {}  # job_id → career_path_name
-    
-    for career_path in CAREER_PATHS:
-        jobs = search_career_path(career_path, sources, days_old=MAX_DAYS_OLD)
+    job_career_path: dict[str, str] = {}
+
+    for career_path in career_paths:
+        jobs = search_career_path(
+            career_path, sources,
+            days_old=max_days_old,
+            locations=locations,
+            include_remote=include_remote,
+            results_per_query=results_per_q,
+        )
         for job in jobs:
-            # Track which career path found this job
             if job.id not in job_career_path:
                 job_career_path[job.id] = career_path["name"]
         all_jobs.extend(jobs)
     
-    # --- Step 3: Global deduplication ---
     unique_jobs = _deduplicate_jobs(all_jobs)
     print(f"\n{'=' * 60}")
     print(f"  Total unique jobs across all paths: {len(unique_jobs)}")
-    
-    # --- Step 4: SP Metropolitan Area filter ---
-    from src.jobs.config import is_sp_metro_area
+
+    # SP metro filter
     before_filter = len(unique_jobs)
     unique_jobs = [j for j in unique_jobs if is_sp_metro_area(j.location)]
     rejected = before_filter - len(unique_jobs)
     if rejected > 0:
-        print(f"  Location filter: {before_filter} → {len(unique_jobs)} (removed {rejected} outside SP metro)")
+        print(f"  Location filter: {before_filter} -> {len(unique_jobs)} (removed {rejected} outside SP metro)")
     print(f"{'=' * 60}")
     
     if not unique_jobs:
@@ -190,24 +232,28 @@ def search_and_match(min_score: float = 0) -> list[ScoredJob]:
     
     scored_jobs: list[ScoredJob] = []
     for job in unique_jobs:
-        res = batch_map.get(job.id, {"score": 50, "interpretation": "⚪ RAG Error Skip"})
-        
-        # FIX FOR MISSING DESCRIPTIONS:
-        # If JobSpy fails to get the description, RAG scores just the title.
-        # If the title is good, force it past the RAG filter (min 45).
+        res = batch_map.get(job.id, {"score": 50, "interpretation": "RAG Error"})
+
+        # Boost score based on career path weight
+        career_path_name = job_career_path.get(job.id, "Unknown")
+        weight = path_weights.get(career_path_name, 1.0)
+        base_score = res["score"]
+
+        # Missing description fallback
         if not job.description or not job.description.strip():
             title_lw = job.title.lower()
-            strong_keywords = ["product", "ops", "analyst", "analista", "dados", "business", "data", "revenue", "bi", "intelligence"]
+            strong_keywords = ["product", "ops", "analyst", "analista", "dados", "business", "data", "revenue", "bi", "intelligence", "gerente", "gestor"]
             if any(k in title_lw for k in strong_keywords):
-                res["score"] = max(res["score"], 45.0)
-                res["interpretation"] = "🟠 Title Match (Missing desc)"
-        
-        career_path_name = job_career_path.get(job.id, "Unknown")
+                base_score = max(base_score, 45.0)
+                res["interpretation"] = "Title Match (Missing desc)"
+
+        final_score = min(base_score * weight, 100.0)  # cap at 100
+
         scored = ScoredJob(
             job=job,
-            score=res["score"],
+            score=final_score,
             interpretation=res["interpretation"],
-            top_matches=[], # Batch mode skips top_matches for speed
+            top_matches=[],
             career_path=career_path_name,
         )
         scored_jobs.append(scored)
