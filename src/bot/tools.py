@@ -42,7 +42,7 @@ def get_recent_jobs(days: int = 7, limit: int = 10, user_id: int = None) -> str:
                 """, (cutoff, user_id, limit))
                 cols = [d[0] for d in cur.description]
                 jobs = [dict(zip(cols, row)) for row in cur.fetchall()]
-        return json.dumps({"jobs": jobs, "count": len(jobs)}, ensure_ascii=False)
+        return json.dumps({"jobs": jobs, "count": len(jobs)}, ensure_ascii=False, default=str)
     except Exception as e:
         logging.exception("Erro técnico ao buscar vagas recentes")
         return json.dumps({"error": "Ocorreu um erro interno ao buscar as vagas remotas. Verifique os logs."})
@@ -67,7 +67,7 @@ def get_job_detail(job_id: str = "", company: str = "", title: str = "", user_id
                     return json.dumps({"error": "Vaga não encontrada"})
                 
                 cols = [d[0] for d in cur.description]
-                return json.dumps(dict(zip(cols, row)), ensure_ascii=False)
+                return json.dumps(dict(zip(cols, row)), ensure_ascii=False, default=str)
     except Exception as e:
         logging.exception("Erro técnico ao detalhar vaga")
         return json.dumps({"error": "Erro interno ao detalhar a vaga."})
@@ -114,7 +114,7 @@ def get_application_stats(user_id: int = None) -> str:
                 """, (user_id,))
                 recent = [{"title": r[0], "company": r[1], "applied_at": str(r[2])} for r in cur.fetchall()]
                 
-        return json.dumps({"total_analyzed": total, "by_status": by_status, "recently_applied": recent}, ensure_ascii=False)
+        return json.dumps({"total_analyzed": total, "by_status": by_status, "recently_applied": recent}, ensure_ascii=False, default=str)
     except Exception as e:
         logging.exception("Erro ao buscar stats")
         return json.dumps({"error": "Erro interno ao buscar estatísticas."})
@@ -134,7 +134,7 @@ def get_pending_followups(user_id: int = None) -> str:
                 """, (cutoff, user_id))
                 cols = [d[0] for d in cur.description]
                 jobs = [dict(zip(cols, row)) for row in cur.fetchall()]
-        return json.dumps({"pending": jobs, "count": len(jobs)}, ensure_ascii=False)
+        return json.dumps({"pending": jobs, "count": len(jobs)}, ensure_ascii=False, default=str)
     except Exception as e:
         logging.exception("Erro pendencias")
         return json.dumps({"error": "Erro ao buscar follow-ups pendentes."})
@@ -188,7 +188,7 @@ def analyze_and_save_url(url: str, user_id: int = None) -> str:
                     llm_result["fit_reason"], llm_result["red_flags"], "interested", now, now
                 ))
 
-        return json.dumps({"success": True, "job_id": job_id, "title": title, "rag_score": rag_result["score"], "llm_score": llm_result["llm_score"], "fit_reason": llm_result["fit_reason"]}, ensure_ascii=False)
+        return json.dumps({"success": True, "job_id": job_id, "title": title, "rag_score": rag_result["score"], "llm_score": llm_result["llm_score"], "fit_reason": llm_result["fit_reason"]}, ensure_ascii=False, default=str)
     except Exception as e:
         logging.exception("Erro ao analisar URL")
         return json.dumps({"error": "Erro ao processar e salvar vaga pela URL."})
