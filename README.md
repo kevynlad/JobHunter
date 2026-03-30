@@ -1,6 +1,6 @@
 # 🎯 JobHunter — Agentic AI Recruiter
 
-**O seu "Agente Autônomo" focado em Recrutamento: Varre, rastreia, pontua e notifica as melhores oportunidades direto no seu Telegram.**
+**O seu "Agente Autônomo": Varre, rastreia, pontua e notifica as melhores oportunidades direto no seu Telegram.**
 
 O JobHunter ultrapassa os limites de um simples scraper. Ele é uma inteligência artificial agêntica que lê o mercado (LinkedIn, Gupy, Indeed), cruza cada vaga com o seu currículo através de Embeddings (RAG Ultraleve) e raciocina profundamente usando LLMs (Gemini). Ele elimina vagas ruins e envia os "Top Matches" num Bot de Telegram com botões interativos para Aplicações rápidas, Cover Letters instantâneas e resiliência de memória.
 
