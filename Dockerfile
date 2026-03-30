@@ -14,11 +14,16 @@ COPY requirements-bot.txt .
 # Install only bot dependencies
 RUN pip install --no-cache-dir -r requirements-bot.txt
 
-# Copy all source code
-COPY . .
-
-# Create and switch to non-root user
+# Create the non-root user
 RUN useradd -m appuser
+
+# Copy all source code with correct ownership
+COPY --chown=appuser:appuser . .
+
+# Ensure data directory exists with correct permissions
+RUN mkdir -p data && chown -R appuser:appuser data
+
+# Switch to non-root user
 USER appuser
 
 # Run the bot
