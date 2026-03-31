@@ -27,6 +27,7 @@ from src.bot.handlers import (
     handle_callback,
     handle_pipeline_command,
     handle_stats_command,
+    handle_debug_command,
 )
 from src.bot.onboarding import handle_start, handle_set_key, handle_set_profile
 import threading
@@ -67,6 +68,7 @@ def create_app() -> Application:
     app.add_handler(CommandHandler("set_profile", handle_set_profile))
     app.add_handler(CommandHandler("pipeline",    handle_pipeline_command))
     app.add_handler(CommandHandler("stats",       handle_stats_command))
+    app.add_handler(CommandHandler("debug",       handle_debug_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 

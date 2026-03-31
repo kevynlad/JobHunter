@@ -44,6 +44,45 @@ async def handle_pipeline_command(update: Update, context: ContextTypes.DEFAULT_
 
 
 
+async def handle_debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /debug — Testa a conexão ao banco e retorna o erro real (para debugging).
+    REMOVER ANTES DE PRODUÇÃO PÚBLICA.
+    """
+    import traceback
+    import os
+    user_id = update.effective_user.id
+    lines = [f"🔍 <b>Debug Report</b> | user_id: <code>{user_id}</code>\n"]
+
+    # 1. Checar variáveis de ambiente
+    db_url = os.environ.get("DATABASE_URL", "❌ NÃO DEFINIDA")
+    enc_key = os.environ.get("ENCRYPTION_MASTER_KEY", "❌ NÃO DEFINIDA")
+    lines.append(f"DATABASE_URL: <code>{'✅ definida' if 'postgresql' in db_url else db_url}</code>")
+    lines.append(f"ENCRYPTION_MASTER_KEY: <code>{'✅ definida' if enc_key != '❌ NÃO DEFINIDA' else enc_key}</code>\n")
+
+    # 2. Testar conexão ao banco
+    try:
+        from src.db.connection import get_conn
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM jobs WHERE user_id = %s", (user_id,))
+                count = cur.fetchone()[0]
+        lines.append(f"✅ <b>Banco OK!</b> {count} vagas encontradas para seu user_id.")
+    except Exception:
+        tb = traceback.format_exc()
+        lines.append(f"❌ <b>Erro ao conectar ao banco:</b>\n<pre>{tb[-1000:]}</pre>")
+
+    # 3. Testar chave Gemini
+    try:
+        from src.bot.key_router import get_key
+        key = get_key("paid", user_id)
+        lines.append(f"✅ <b>Chave Gemini OK:</b> <code>{key[:8]}...</code>")
+    except Exception as e:
+        lines.append(f"❌ <b>Erro na chave Gemini:</b> <code>{e}</code>")
+
+    await update.message.reply_html("\n".join(lines))
+
+
 async def handle_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /stats — Debug command to show raw database numbers directly.
