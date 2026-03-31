@@ -27,8 +27,8 @@ def get_client() -> Client:
     A service_role key bypassa RLS — o isolamento de tenant é feito
     via filtros explícitos (user_id) em todas as queries.
     """
-    url = os.environ.get("SUPABASE_URL", _SUPABASE_URL)
-    key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+    url = os.environ.get("SUPABASE_URL", os.environ.get("NEXT_PUBLIC_SUPABASE_URL", _SUPABASE_URL))
+    key = os.environ.get("SUPABASE_SERVICE_KEY", os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""))
 
     if not key:
         raise RuntimeError(

@@ -32,6 +32,20 @@ from src.bot.handlers import (
 from src.bot.onboarding import handle_start, handle_set_key, handle_set_profile
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from telegram import Update
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify the user of a failure."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_html(
+                "⚠️ <b>Ops! Tive um problema interno.</b>\n"
+                "Pode ter sido um _timeout_ na API do Gemini ou erro de conexão. "
+                "Por favor, tente novamente em alguns instantes."
+            )
+        except Exception:
+            pass
 
 load_dotenv()
 logging.basicConfig(
@@ -71,6 +85,9 @@ def create_app() -> Application:
     app.add_handler(CommandHandler("debug",       handle_debug_command))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Global Error Handler para capturar timeouts da Vercel ou falhas do Gemini
+    app.add_error_handler(error_handler)
 
     # Proactive triggers migrated to GitHub Actions worker (scripts/github_worker.py)
     # setup_triggers was removed — follow-ups are handled by the background cron job.

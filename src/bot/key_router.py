@@ -38,9 +38,12 @@ def get_key(tier: str = "paid", user_id: int | None = None) -> str:
                     logger.info(f"user {user_id}: no {tier} key, falling back to free key")
                     return user["gemini_free_key"]
         except Exception as e:
-            logger.warning(f"Could not fetch key for user {user_id}: {e}. Using system key.")
+            logger.warning(f"Could not fetch key for user {user_id}: {e}.")
+            
+        logger.info(f"User {user_id} using system FREE key fallback for onboarding.")
+        return _get_system_key("free")
 
-    # System fallback (admin / pipeline / local dev)
+    # System default (admin / pipeline / local dev)
     return _get_system_key(tier)
 
 

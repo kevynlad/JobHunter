@@ -44,13 +44,12 @@ MIN_JOBS_TO_NOTIFY = 5          # Need at least this many good jobs
 MAX_JOBS_IN_NOTIFICATION = 15   # Show at most this many in Telegram
 
 
-def run_pipeline(user_id: int | None = None) -> dict:
+def run_pipeline(user_id: int) -> dict:
     """
-    Run the full JobHunter pipeline for a specific user.
-    If user_id is None, reads TELEGRAM_CHAT_ID from env (legacy/local mode).
+    Run the full JobHunter pipeline for a specific user (tenant isolation).
     """
-    if user_id is None:
-        user_id = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
+    if not user_id:
+        raise ValueError("run_pipeline requires a valid user_id for multi-tenant execution.")
     try:
         logger.info("=" * 60)
         logger.info(f"  🚀 JobHunter Pipeline")
@@ -349,4 +348,4 @@ def _save_results_csv(scored_jobs: list):
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding='utf-8')
-    result = run_pipeline()
+    logger.warning("Please run scripts/github_worker.py for multi-tenant batch execution.")

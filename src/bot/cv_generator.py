@@ -21,10 +21,10 @@ ATS Strategy:
 import io
 import json
 import os
-import sqlite3
 from pathlib import Path
 
 from google import genai
+from src.db.connection import get_conn
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
@@ -35,7 +35,6 @@ from reportlab.lib.colors import HexColor
 from src.bot.key_router import get_key
 
 
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "jobs.db"
 CAREER_PATH = Path(__file__).parent.parent.parent / "data" / "career"
 
 
@@ -60,32 +59,38 @@ def _load_career_profile() -> str:
     return "\n\n---\n\n".join(parts) if parts else ""
 
 
-def _get_job_from_db(job_id: str) -> dict | None:
-    """Fetch job details from SQLite."""
-    try:
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
-        conn.close()
-        return dict(row) if row else None
-    except Exception:
-        return None
+def _get_job_from_db(job_id: str, user_id: int) -> dict | None:
+    """Fetch job details from PostgreSQL (Supabase)."""
+    with get_conn(user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT job_id, title, company, description, seniority, fit_reason, cover_letter_text
+                FROM jobs WHERE job_id = %s AND user_id = %s
+            """, (job_id, user_id))
+            row = cur.fetchone()
+            if row:
+                return {
+                    "job_id": row[0],
+                    "title": row[1],
+                    "company": row[2],
+                    "description": row[3],
+                    "seniority": row[4],
+                    "fit_reason": row[5],
+                    "cover_letter_text": row[6]
+                }
+            return None
 
 
-def _save_documents_to_db(job_id: str, cover_letter_text: str,
-                           cover_letter_bytes: bytes, cv_bytes: bytes | None):
-    """Persist generated documents as BLOBs in the database."""
+def _save_documents_to_db(job_id: str, user_id: int, cover_letter_text: str):
+    """Persist generated documents text in the PostgreSQL database."""
     try:
-        conn = sqlite3.connect(str(DB_PATH))
-        conn.execute("""
-            UPDATE jobs
-            SET cover_letter_text = ?,
-                cover_letter_pdf  = ?,
-                cv_pdf            = ?
-            WHERE job_id = ?
-        """, (cover_letter_text, cover_letter_bytes, cv_bytes, job_id))
-        conn.commit()
-        conn.close()
+        with get_conn(user_id) as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE jobs
+                    SET cover_letter_text = %s
+                    WHERE job_id = %s AND user_id = %s
+                """, (cover_letter_text, job_id, user_id))
     except Exception as e:
         print(f"[!] Failed to save documents to DB: {e}")
 
@@ -291,14 +296,14 @@ def _build_cv_pdf(cv_data: dict, company: str) -> bytes:
 
 # ─────────────────────────── PUBLIC API ───────────────────────────
 
-async def generate_cover_letter_pdf(bot, chat_id: int, job_id: str):
+async def generate_cover_letter_pdf(bot, chat_id: int, job_id: str, user_id: int):
     """
     Generate and send a cover letter for a given job.
     Saves the result to the database for future retrieval.
     """
     await bot.send_message(chat_id=chat_id, text="📝 Gerando cover letter com Gemini...")
 
-    job = _get_job_from_db(job_id)
+    job = _get_job_from_db(job_id, user_id)
     if not job:
         await bot.send_message(chat_id=chat_id, text="❌ Vaga não encontrada no banco.")
         return
@@ -333,9 +338,8 @@ async def generate_cover_letter_pdf(bot, chat_id: int, job_id: str):
     # Save to database
     _save_documents_to_db(
         job_id=job_id,
-        cover_letter_text=cover_text,
-        cover_letter_bytes=pdf_bytes,
-        cv_bytes=None,  # CV not generated yet
+        user_id=user_id,
+        cover_letter_text=cover_text
     )
 
     # Send the PDF via Telegram
@@ -351,14 +355,14 @@ async def generate_cover_letter_pdf(bot, chat_id: int, job_id: str):
     )
 
 
-async def generate_cv_pdf(bot, chat_id: int, job_id: str):
+async def generate_cv_pdf(bot, chat_id: int, job_id: str, user_id: int):
     """
     Generate and send an ATS-optimized 1-page CV for a given job.
     Saves the result to the database for future retrieval.
     """
     await bot.send_message(chat_id=chat_id, text="📋 Gerando CV ATS-otimizado com Gemini...")
 
-    job = _get_job_from_db(job_id)
+    job = _get_job_from_db(job_id, user_id)
     if not job:
         await bot.send_message(chat_id=chat_id, text="❌ Vaga não encontrada no banco.")
         return
@@ -400,12 +404,8 @@ async def generate_cv_pdf(bot, chat_id: int, job_id: str):
     pdf_bytes = _build_cv_pdf(cv_data, company=job.get("company", ""))
 
     # Save to database
-    _save_documents_to_db(
-        job_id=job_id,
-        cover_letter_text=job.get("cover_letter_text", ""),
-        cover_letter_bytes=job.get("cover_letter_pdf") or b"",
-        cv_bytes=pdf_bytes,
-    )
+    # For CV we only send the PDF via Telegram but we don't save the bytes in PostgreSQL
+    pass
 
     # Send ATS keywords as a tip message first
     keywords = cv_data.get("ats_keywords", [])

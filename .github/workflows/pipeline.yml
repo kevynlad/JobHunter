@@ -1,0 +1,51 @@
+name: JobHunter Pipeline
+
+on:
+  schedule:
+    # Rodar todos os dias as 08:00 e 18:00 (UTC)
+    - cron: '0 8,18 * * *'
+  workflow_dispatch:
+    inputs:
+      user_id:
+        description: 'Specific User ID to run the pipeline for (Optional, leave blank for all active users)'
+        required: false
+        type: string
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 hours max as per specs
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ENCRYPTION_MASTER_KEY: ${{ secrets.ENCRYPTION_MASTER_KEY }}
+          # Fallback system keys (Optional, managed by keys logic)
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          # Passar a entrada manual do usuário
+          TARGET_USER_ID: ${{ github.event.inputs.user_id }}
+        run: |
+          # If a specific user triggered this via Telegram, pass it down
+          if [ ! -z "$TARGET_USER_ID" ]; then
+            echo "Running pipeline targeted for User ID: $TARGET_USER_ID"
+          fi
+          # We'll need to modify pipeline.py slightly to accept env var TARGET_USER_ID if present
+          # In the meantime, running the global pipeline.py
+          python -m src.pipeline

@@ -25,28 +25,15 @@ CAREER_PATH = Path(__file__).parent.parent.parent / "data" / "career"
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "jobs.db"
 
 
-def _load_career_profile() -> str:
-    """Load career profile from files or env vars (Railway scenario)."""
-    parts = []
-    if CAREER_PATH.exists():
-        for f in CAREER_PATH.iterdir():
-            if f.suffix in (".md", ".txt") and f.is_file():
-                parts.append(f.read_text(encoding="utf-8"))
-
-    # Fallback: read from Railway env vars when Volume files aren't present
-    if not parts:
-        master = os.getenv("MASTER_PROFILE", "").strip()
-        product_ops = os.getenv("PRODUCT_OPS_PROFILE", "").strip()
-        if master:
-            parts.append(master)
-        if product_ops:
-            parts.append(f"## Competências de Product Ops\n{product_ops}")
-
-    full_profile = "\n\n---\n\n".join(parts) if parts else "Perfil de carreira não disponível."
-    # Trim to 2000 chars to avoid burning token quota on every request
-    if len(full_profile) > 3500:
-        full_profile = full_profile[:3500] + "\n\n[... perfil truncado | resumo disponível via ferramentas ...]"
-    return full_profile
+def _load_career_profile(user_id: int) -> str:
+    """Load career profile from the database for the given user."""
+    from src.db.users import get_user
+    user = get_user(user_id)
+    if user and user.get("career_summary"):
+        return user["career_summary"]
+    
+    # Fallback text if user has no profile mapped
+    return "Perfil de carreira ainda não configurado. Por favor, solicite ao usuário para usar o comando /set_profile."
 
 
 SYSTEM_PROMPT = """Você é o CareerBot, assistente de carreira pessoal do usuário abaixo.
@@ -76,12 +63,7 @@ PERFIL DO USUÁRIO:
    → Lista vagas marcadas como interessante há mais de 3 dias sem aplicação.
      Use quando o usuário pedir "pendências", "não apliquei ainda".
 
-6. analyze_and_save_url(url)
-   → Faz scraping de uma URL de vaga, calcula o score RAG+LLM e salva no banco.
-     Use SEMPRE que o usuário enviar um link (http/https) de vaga.
-     ATENÇÃO: não funciona com LinkedIn (requer login). Para LinkedIn, peça o texto.
-
-7. learn_from_job(job_id)
+6. learn_from_job(job_id)
    → Extrai palavras-chave estratégicas da vaga e salva em memória de longo prazo.
      Use quando o usuário clicar em "Quero Aplicar" ou elogiar muito uma vaga.
 
@@ -121,9 +103,12 @@ class CareerAgent:
     def _setup_model(self):
         """Initialize chat session system prompt and state."""
         # Paid key for interactive user-facing conversations
-        self.api_keys = get_key_pool("paid")
+        self.api_keys = get_key_pool("paid", self.user_id)
+        self.using_fallback = False
+        self._fallback_warned = False
         if not self.api_keys:
             # Fallback to legacy pool if paid key not configured
+            self.using_fallback = True
             pool = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", "")).split(",")
             self.api_keys = [k.strip() for k in pool if k.strip()]
         self.current_key_idx = 0
@@ -131,7 +116,7 @@ class CareerAgent:
         if not self.api_keys:
             raise ValueError("Nenhuma GEMINI_API_KEY encontrada.")
 
-        career_profile = _load_career_profile()
+        career_profile = _load_career_profile(self.user_id)
         self.system = SYSTEM_PROMPT.format(career_profile=career_profile)
         self.history = []  # list of types.Content objects
         self._get_client()
@@ -184,9 +169,9 @@ class CareerAgent:
             attempt += 1
             key_label = f"key {self.current_key_idx + 1}/{len(self.api_keys)}"
             try:
-                # Agentic loop — hard cap at 5 tool steps to prevent quota drain
+                # Agentic loop — Reduce to 2 steps to respect Vercel Timeout (10-60s)
                 step_count = 0
-                max_steps = 5
+                max_steps = 2
 
                 while step_count < max_steps:
                     step_count += 1
@@ -205,7 +190,11 @@ class CareerAgent:
                     ]
 
                     if not tool_calls or step_count >= max_steps:
-                        return response.text
+                        final_text = response.text
+                        if getattr(self, "using_fallback", False) and not getattr(self, "_fallback_warned", False):
+                            self._fallback_warned = True
+                            final_text += "\n\n⚠️ <i>Aviso: Você está usando a cota cortesia do sistema. Configure sua própria chave Gemini pelo menu /set_key para pesquisas ilimitadas.</i>"
+                        return final_text
 
                     tool_parts = []
                     for call in tool_calls:

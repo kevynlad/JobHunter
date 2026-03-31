@@ -36,11 +36,28 @@ async def handle_pipeline_command(update: Update, context: ContextTypes.DEFAULT_
         "O processo de busca e classificação pelo LLM pode demorar algumas horas.\n"
         "Você receberá uma mensagem automática aqui quando as novas vagas forem encontradas!"
     )
-    
-    # TODO: FUTURE - Implement httpx POST to GitHub Actions workflow_dispatch API
-    # import httpx
-    # async with httpx.AsyncClient() as client:
-    #     await client.post("https://api.github.com/repos/user/repo/actions/workflows/pipeline.yml/dispatches", ...)
+    import httpx
+    import os
+    github_token = os.getenv("GITHUB_TOKEN", "").strip()
+    if github_token:
+        # Padrão para o repo de onde o workflow roda
+        repo = os.getenv("GITHUB_REPOSITORY_NAME", "kevynlad/JobHunter")
+        url = f"https://api.github.com/repos/{repo}/actions/workflows/pipeline.yml/dispatches"
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "Authorization": f"token {github_token}",
+        }
+        payload = {"ref": "main", "inputs": {"user_id": str(update.effective_user.id)}}
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                logger.info(f"GitHub Action Dispatch Success: {resp.status_code}")
+            except Exception as e:
+                logger.error(f"Erro ao triggar GitHub Actions: {e}")
+    else:
+        logger.warning("GITHUB_TOKEN não configurado. Impossível disparar o workflow background.")
 
 
 

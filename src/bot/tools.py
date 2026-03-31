@@ -251,7 +251,6 @@ TOOL_DECLARATIONS = [
     {"name": "update_job_status", "description": "Atualiza o status de uma vaga: interested, applied, interviewing, rejected, skipped, offer", "parameters": {"type": "object", "properties": {"job_id": {"type": "string"}, "status": {"type": "string"}}, "required": ["job_id", "status"]}},
     {"name": "get_application_stats", "description": "Retorna estatísticas gerais.", "parameters": {"type": "object", "properties": {}}},
     {"name": "get_pending_followups", "description": "Lista vagas marcadas como interessante sem aplicação.", "parameters": {"type": "object", "properties": {}}},
-    {"name": "analyze_and_save_url", "description": "Scraping de URL e salva no banco.", "parameters": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
     {"name": "learn_from_job", "description": "Extrai e salva competências de uma vaga.", "parameters": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]}},
 ]
 
@@ -261,6 +260,5 @@ TOOL_EXECUTOR = {
     "update_job_status": update_job_status,
     "get_application_stats": get_application_stats,
     "get_pending_followups": get_pending_followups,
-    "analyze_and_save_url": analyze_and_save_url,
     "learn_from_job": learn_from_job,
 }
