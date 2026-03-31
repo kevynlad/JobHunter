@@ -27,7 +27,12 @@ pandas>=2.0.0
 # RAG now uses Gemini text-embedding-004 API + JSON vector store (~50KB)
 
 # PostgreSQL (replaces SQLite for multi-tenant cloud DB)
+# psycopg2 usado pelo pipeline no GitHub Actions (TCP direto funciona lá)
 psycopg2-binary>=2.9.9
+
+# Supabase SDK (REST/HTTPS) — driver primário para o bot na Vercel
+# Não tem problemas de IPv6 / pooler que o psycopg2 tem em Lambda
+supabase>=2.0.0
 
 # BYOK key encryption (AES-256 Fernet)
 cryptography>=42.0.0

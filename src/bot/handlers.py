@@ -60,21 +60,12 @@ async def handle_debug_command(update: Update, context: ContextTypes.DEFAULT_TYP
     lines.append(f"DATABASE_URL: <code>{'✅ definida' if 'postgresql' in db_url else db_url}</code>")
     lines.append(f"ENCRYPTION_MASTER_KEY: <code>{'✅ definida' if enc_key != '❌ NÃO DEFINIDA' else enc_key}</code>\n")
 
-    # 2. Testar conexão ao banco
+    # 2. Testar conexão ao banco (via supabase-py SDK)
     try:
-        from src.db.connection import get_conn
-        import os
-        from urllib.parse import urlparse, urlunparse
-
-        raw_dsn = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL", "")
-        parsed = urlparse(raw_dsn)
-        safe_dsn = f"{parsed.scheme}://{parsed.username}@{parsed.hostname}:{parsed.port}{parsed.path}"
-        lines.append(f"DSN usado: <code>{safe_dsn}</code>\n")
-
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM jobs WHERE user_id = %s", (user_id,))
-                count = cur.fetchone()[0]
+        from src.db.client import get_client
+        client = get_client()
+        result = client.table("jobs").select("job_id", count="exact").eq("user_id", user_id).limit(1).execute()
+        count = result.count if result.count is not None else len(result.data)
         lines.append(f"✅ <b>Banco OK!</b> {count} vagas encontradas para seu user_id.")
     except Exception:
         tb = traceback.format_exc()
