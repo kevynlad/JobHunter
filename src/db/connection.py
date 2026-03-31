@@ -14,7 +14,6 @@ import logging
 from contextlib import contextmanager
 
 import psycopg2
-import psycopg2.extras
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +25,13 @@ def get_conn(user_id: int | None = None):
 
     Projetado para ambientes Serverless (Vercel): abre, usa e fecha.
     Se user_id for fornecido, seta a variável de sessão para RLS/tenant isolation.
+    Usa cursor padrão (tuplas) para compatibilidade com todos os módulos.
     """
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         raise RuntimeError("DATABASE_URL não configurada no ambiente.")
 
-    conn = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = psycopg2.connect(dsn)
     try:
         if user_id is not None:
             with conn.cursor() as cur:

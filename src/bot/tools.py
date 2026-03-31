@@ -40,7 +40,8 @@ def get_recent_jobs(days: int = 7, limit: int = 10, user_id: int = None) -> str:
                     ORDER BY llm_score DESC
                     LIMIT %s
                 """, (cutoff, user_id, limit))
-                jobs = [dict(r) for r in cur.fetchall()]
+                cols = [d[0] for d in cur.description]
+                jobs = [dict(zip(cols, row)) for row in cur.fetchall()]
         return json.dumps({"jobs": jobs, "count": len(jobs)}, ensure_ascii=False, default=str)
     except Exception as e:
         logging.exception("Erro técnico ao buscar vagas recentes")
@@ -65,7 +66,8 @@ def get_job_detail(job_id: str = "", company: str = "", title: str = "", user_id
                 if not row:
                     return json.dumps({"error": "Vaga não encontrada"})
                 
-                return json.dumps(dict(row), ensure_ascii=False, default=str)
+                cols = [d[0] for d in cur.description]
+                return json.dumps(dict(zip(cols, row)), ensure_ascii=False, default=str)
     except Exception as e:
         logging.exception("Erro técnico ao detalhar vaga")
         return json.dumps({"error": "Erro interno ao detalhar a vaga."})
@@ -99,11 +101,11 @@ def get_application_stats(user_id: int = None) -> str:
     try:
         with get_conn(user_id) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) as total FROM jobs WHERE user_id = %s", (user_id,))
-                total = cur.fetchone()["total"]
+                cur.execute("SELECT COUNT(*) FROM jobs WHERE user_id = %s", (user_id,))
+                total = cur.fetchone()[0]
                 
-                cur.execute("SELECT status, COUNT(*) as cnt FROM jobs WHERE user_id = %s GROUP BY status", (user_id,))
-                by_status = {r["status"]: r["cnt"] for r in cur.fetchall()}
+                cur.execute("SELECT status, COUNT(*) FROM jobs WHERE user_id = %s GROUP BY status", (user_id,))
+                by_status = dict(cur.fetchall())
                 
                 cur.execute("""
                     SELECT title, company, applied_at 
@@ -130,7 +132,8 @@ def get_pending_followups(user_id: int = None) -> str:
                     WHERE status = 'interested' AND first_seen <= %s AND user_id = %s
                     ORDER BY llm_score DESC
                 """, (cutoff, user_id))
-                jobs = [dict(r) for r in cur.fetchall()]
+                cols = [d[0] for d in cur.description]
+                jobs = [dict(zip(cols, row)) for row in cur.fetchall()]
         return json.dumps({"pending": jobs, "count": len(jobs)}, ensure_ascii=False, default=str)
     except Exception as e:
         logging.exception("Erro pendencias")
@@ -202,7 +205,7 @@ def learn_from_job(job_id: str, user_id: int = None) -> str:
         if not row:
             return json.dumps({"error": f"Vaga {job_id} não encontrada no banco."})
             
-        desc, title, company = row
+        desc, title, company = row[0], row[1], row[2]
         if not desc or len(desc.strip()) < 50:
             return json.dumps({"error": "Vaga sem descrição suficiente para aprender."})
             
