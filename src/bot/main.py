@@ -29,7 +29,6 @@ from src.bot.handlers import (
     handle_stats_command,
 )
 from src.bot.onboarding import handle_start, handle_set_key, handle_set_profile
-from src.bot.triggers import setup_triggers
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -71,9 +70,8 @@ def create_app() -> Application:
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Proactive triggers (follow-ups, weekly digest)
-    if app.job_queue:
-        setup_triggers(app.job_queue)
+    # Proactive triggers migrated to GitHub Actions worker (scripts/github_worker.py)
+    # setup_triggers was removed — follow-ups are handled by the background cron job.
 
     return app
 

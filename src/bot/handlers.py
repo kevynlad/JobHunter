@@ -48,7 +48,8 @@ async def handle_stats_command(update: Update, context: ContextTypes.DEFAULT_TYP
     """
     /stats — Debug command to show raw database numbers directly.
     """
-    stats_json = get_application_stats()
+    user_id = update.effective_user.id
+    stats_json = get_application_stats(user_id=user_id)
     try:
         stats = json.loads(stats_json)
         total = stats.get("total_analyzed", 0)
@@ -131,6 +132,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bot=context.bot,
             chat_id=query.message.chat_id,
             job_id=job_id,
+            user_id=user_id,
         )
 
     elif data.startswith("remind:"):

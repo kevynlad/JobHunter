@@ -99,11 +99,11 @@ def get_application_stats(user_id: int = None) -> str:
     try:
         with get_conn(user_id) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM jobs WHERE user_id = %s", (user_id,))
-                total = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) as total FROM jobs WHERE user_id = %s", (user_id,))
+                total = cur.fetchone()["total"]
                 
-                cur.execute("SELECT status, COUNT(*) FROM jobs WHERE user_id = %s GROUP BY status", (user_id,))
-                by_status = dict(cur.fetchall())
+                cur.execute("SELECT status, COUNT(*) as cnt FROM jobs WHERE user_id = %s GROUP BY status", (user_id,))
+                by_status = {r["status"]: r["cnt"] for r in cur.fetchall()}
                 
                 cur.execute("""
                     SELECT title, company, applied_at 
