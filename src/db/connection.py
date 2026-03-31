@@ -41,6 +41,12 @@ def get_conn(user_id: int | None = None):
             "Configure POSTGRES_URL (Supabase-Vercel integration) ou DATABASE_URL."
         )
 
+    # psycopg2 rejeita parâmetros proprietários da URL do Supabase (ex: ?supa=base-pooler.x)
+    # Removemos o query string para compatibilidade.
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(dsn)
+    dsn = urlunparse(parsed._replace(query=""))
+
     conn = psycopg2.connect(dsn)
     try:
         yield conn
