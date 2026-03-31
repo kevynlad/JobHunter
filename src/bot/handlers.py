@@ -63,6 +63,14 @@ async def handle_debug_command(update: Update, context: ContextTypes.DEFAULT_TYP
     # 2. Testar conexão ao banco
     try:
         from src.db.connection import get_conn
+        import os
+        from urllib.parse import urlparse, urlunparse
+
+        raw_dsn = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL", "")
+        parsed = urlparse(raw_dsn)
+        safe_dsn = f"{parsed.scheme}://{parsed.username}@{parsed.hostname}:{parsed.port}{parsed.path}"
+        lines.append(f"DSN usado: <code>{safe_dsn}</code>\n")
+
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) FROM jobs WHERE user_id = %s", (user_id,))
