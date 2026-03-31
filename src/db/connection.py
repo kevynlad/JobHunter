@@ -4,9 +4,14 @@ src/db/connection.py
 Stateless PostgreSQL connection helper para ambiente Serverless (Vercel).
 
 GUARDRAIL: Em Serverless, o processo Python nasce e morre a cada request.
-NÃO usamos Connection Pooling em memória (ThreadedConnectionPool) porque
-a memória não persiste entre invocações. Cada request abre uma conexão
-direta, usa e fecha — esse é o padrão correto para Vercel.
+Usamos o Transaction Pooler do Supabase (porta 6543) — resolve para IPv4,
+que a Vercel Lambda consegue acessar. A conexão direta (porta 5432) resolve
+para IPv6 e é bloqueada pelo Lambda.
+
+NOTA: O Transaction Pooler (PgBouncer) opera em "transaction mode" e NÃO
+suporta SET/set_config de variáveis de sessão. Por isso, multi-tenant
+isolation é feito via filtro explícito user_id em todas as queries (WHERE
+user_id = %s), não via RLS session variables.
 """
 
 import os
@@ -21,11 +26,11 @@ logger = logging.getLogger(__name__)
 @contextmanager
 def get_conn(user_id: int | None = None):
     """
-    Context manager que abre uma conexão direta e efêmera ao PostgreSQL.
+    Context manager que abre uma conexão direta e efêmera ao PostgreSQL
+    via Transaction Pooler do Supabase (porta 6543, IPv4, compatível com Vercel).
 
-    Projetado para ambientes Serverless (Vercel): abre, usa e fecha.
-    Se user_id for fornecido, seta a variável de sessão para RLS/tenant isolation.
-    Usa cursor padrão (tuplas) para compatibilidade com todos os módulos.
+    O parâmetro user_id é aceito para compatibilidade com a API existente,
+    mas o isolamento de tenant é feito pelas queries (WHERE user_id = %s).
     """
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
@@ -33,12 +38,6 @@ def get_conn(user_id: int | None = None):
 
     conn = psycopg2.connect(dsn)
     try:
-        if user_id is not None:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT set_config('app.current_user_id', %s, TRUE)",
-                    (str(user_id),)
-                )
         yield conn
         conn.commit()
     except Exception:
