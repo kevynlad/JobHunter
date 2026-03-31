@@ -32,9 +32,14 @@ def get_conn(user_id: int | None = None):
     O parâmetro user_id é aceito para compatibilidade com a API existente,
     mas o isolamento de tenant é feito pelas queries (WHERE user_id = %s).
     """
-    dsn = os.environ.get("DATABASE_URL")
+    # POSTGRES_URL é injetado automaticamente pela integração Supabase ↔ Vercel
+    # (Transaction Pooler, porta 6543, IPv4). DATABASE_URL é o fallback para dev local.
+    dsn = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
     if not dsn:
-        raise RuntimeError("DATABASE_URL não configurada no ambiente.")
+        raise RuntimeError(
+            "Nenhuma URL de banco encontrada. "
+            "Configure POSTGRES_URL (Supabase-Vercel integration) ou DATABASE_URL."
+        )
 
     conn = psycopg2.connect(dsn)
     try:
