@@ -120,7 +120,7 @@ def run_pipeline(user_id: int) -> dict:
         if unnotified:
             logger.info(f"\n📱 Sending Telegram notification ({len(unnotified)} new matches)...")
             jobs_to_send = unnotified[:MAX_JOBS_IN_NOTIFICATION]
-            success = send_job_cards_with_buttons(jobs_to_send, total_analyzed=len(all_scored))
+            success = send_job_cards_with_buttons(jobs_to_send, chat_id=user_id, total_analyzed=len(all_scored))
             notified = success
             if success:
                 mark_notified([j['job_id'] for j in unnotified], user_id=user_id)
@@ -147,7 +147,7 @@ def run_pipeline(user_id: int) -> dict:
                 
         summary_lines.append("\n💾 <i>Lembrete: TODAS as vagas foram salvas no /stats</i>")
         try:
-            send_telegram_message("\n".join(summary_lines))
+            send_telegram_message("\n".join(summary_lines), chat_id=user_id)
         except Exception as e:
             logger.error(f"Failed to send summary: {e}")
                 
@@ -164,7 +164,7 @@ def run_pipeline(user_id: int) -> dict:
         logger.error(f"FATAL PIPELINE ERROR: {e}\n{err_stack}")
         try:
             err_msg = f"❌ <b>Erro Crítico no Pipeline:</b>\n<pre>{err_stack[-1000:]}</pre>"
-            send_telegram_message(err_msg)
+            send_telegram_message(err_msg, chat_id=user_id)
         except:
             pass
         return {"total": 0, "good_matches": 0, "notified": False, "error": str(e)}

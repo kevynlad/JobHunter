@@ -143,7 +143,7 @@ def _call_gemini(system_instruction: str, prompt: str, tier: str = "free", max_r
                     print(f"  [Error] Limite persistente após {max_retries} tentativas")
                     return None
             else:
-                print(f"  [Error] Gemini API error: {e.response.status_code}")
+                print(f"  [Error] Gemini API error: {e.response.status_code} - {getattr(e.response, 'text', '')}")
                 return None
         except Exception as e:
             print(f"  [Error] LLM error: {e}")

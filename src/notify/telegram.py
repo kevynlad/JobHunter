@@ -46,7 +46,7 @@ def _inline_keyboard(job_id: str) -> dict:
     }
 
 
-def send_job_cards_with_buttons(jobs: list, total_analyzed: int = 0) -> bool:
+def send_job_cards_with_buttons(jobs: list, chat_id: str | int, total_analyzed: int = 0) -> bool:
     """
     Send one Telegram message per job card, each with action buttons.
     This replaces the old bulk-text notification with interactive per-job cards.
@@ -54,13 +54,13 @@ def send_job_cards_with_buttons(jobs: list, total_analyzed: int = 0) -> bool:
     Args:
         jobs: list of dicts with job_id, title, company, llm_score, rag_score,
               verdict, fit_reason, url, seniority, company_tier
+        chat_id: The target user's Telegram chat ID
         total_analyzed: total number of jobs scanned (for the header summary)
     """
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
 
     if not token or not chat_id:
-        print("[!] Telegram: Missing BOT_TOKEN or CHAT_ID in .env")
+        print("[!] Telegram: Missing BOT_TOKEN or chat_id not provided")
         return False
 
     from datetime import datetime
@@ -131,22 +131,22 @@ def _raw_send(token: str, chat_id: str, text: str, keyboard: dict | None) -> boo
         return False
 
 
-def send_telegram_message(text: str, parse_mode: str = "HTML") -> bool:
+def send_telegram_message(text: str, chat_id: str | int, parse_mode: str = "HTML") -> bool:
     """
     Send a message to the user via Telegram.
     
     Args:
         text: The message text (supports HTML or Markdown formatting)
+        chat_id: The target user's Telegram chat ID
         parse_mode: "HTML" or "Markdown"
     
     Returns:
         True if sent successfully, False otherwise
     """
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
     
     if not token or not chat_id:
-        print("[!] Telegram: Missing BOT_TOKEN or CHAT_ID in .env")
+        print("[!] Telegram: Missing BOT_TOKEN or chat_id not provided")
         return False
     
     try:
@@ -266,10 +266,12 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding='utf-8')
     
     # Send a simple test message
+    test_chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
     success = send_telegram_message(
         "🧪 <b>Test</b> — Telegram integration working!\n\n"
         "This is a test from JobHunter.\n"
         "If you see this, notifications are ready! ✅",
+        chat_id=test_chat_id,
         parse_mode="HTML",
     )
     print(f"Test message sent: {success}")
