@@ -46,6 +46,5 @@ jobs:
           if [ ! -z "$TARGET_USER_ID" ]; then
             echo "Running pipeline targeted for User ID: $TARGET_USER_ID"
           fi
-          # We'll need to modify pipeline.py slightly to accept env var TARGET_USER_ID if present
-          # In the meantime, running the global pipeline.py
-          python -m src.pipeline
+          # Se não houver alvo, rodará para todos
+          PYTHONPATH=. python scripts/github_worker.py

@@ -7,6 +7,7 @@ e executa o pipeline individualmente para cada um deles.
 """
 
 import sys
+import os
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
@@ -30,11 +31,20 @@ def run_all_tenants():
     logger.info("   🚀 INICIANDO BACKGROUND WORKER (MULTI-TENANT)")
     logger.info("=" * 60)
     
+    target_user_id = os.environ.get("TARGET_USER_ID", "").strip()
+    
     users = get_active_users()
     if not users:
         logger.warning("Nenhum usuário ativo com chave do Gemini encontrado.")
         return
         
+    if target_user_id:
+        logger.info(f"Filtro ativo: Executando apenas para o usuário {target_user_id}.")
+        users = [u for u in users if str(u["user_id"]) == target_user_id]
+        if not users:
+            logger.warning(f"Usuário {target_user_id} não encontrado ou inativo.")
+            return
+
     logger.info(f"Encontrados {len(users)} tenants para processamento.")
     
     for i, user in enumerate(users, start=1):
