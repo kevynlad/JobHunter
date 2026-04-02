@@ -53,13 +53,18 @@ def check_env():
     section("1. Environment Variables (Secrets)")
 
     required = {
-        "DATABASE_URL":         "Primary DB connection (Transaction Pooler preferred)",
-        "POSTGRES_URL":         "Fallback alias – set by Vercel-Supabase integration",
-        "SUPABASE_URL":         "REST API URL for Supabase SDK",
-        "SUPABASE_SERVICE_KEY": "Admin key for server-side Supabase access",
-        "ENCRYPTION_MASTER_KEY":"Fernet master key for BYOK encryption",
-        "TELEGRAM_BOT_TOKEN":   "Telegram Bot API token",
-        "GEMINI_API_KEYS":      "Comma-separated fallback Gemini keys",
+        "DATABASE_URL":          "Primary DB connection (Transaction Pooler preferred)",
+        "SUPABASE_URL":          "REST API URL for Supabase SDK",
+        "SUPABASE_SERVICE_KEY":  "Admin key for server-side Supabase access",
+        "ENCRYPTION_MASTER_KEY": "Fernet master key for BYOK user key decryption",
+        "TELEGRAM_BOT_TOKEN":    "Telegram Bot API token",
+    }
+
+    # Optional system-level fallback keys (used ONLY during onboarding for new users)
+    optional = {
+        "GEMINI_FREE_API_KEY":  "System fallback — onboarding only (new users w/ no BYOK key)",
+        "GEMINI_PAID_API_KEY":  "System fallback — onboarding only (optional, paid tier)",
+        "POSTGRES_URL":         "Fallback DB alias (set by Vercel-Supabase integration)",
     }
 
     any_missing = False
@@ -71,8 +76,17 @@ def check_env():
             fail(f"{var:<28} MISSING  # {description}")
             any_missing = True
 
+    info("")
+    info("Optional / System Fallback Keys (BYOK multi-tenant — not required for pipeline):")
+    for var, description in optional.items():
+        val = os.environ.get(var, "")
+        if val:
+            ok(f"  {var:<26} defined  (len={len(val)})  # {description}")
+        else:
+            warn(f"  {var:<26} not set  # {description}")
+
     if any_missing:
-        warn("One or more required variables are missing. The pipeline WILL fail.")
+        warn("One or more REQUIRED variables are missing. The pipeline WILL fail.")
     else:
         ok("All required environment variables are present.")
 
