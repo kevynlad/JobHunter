@@ -29,7 +29,7 @@ from src.bot.handlers import (
     handle_stats_command,
     handle_debug_command,
 )
-from src.bot.onboarding import handle_start, handle_set_key, handle_set_profile
+from src.bot.onboarding import handle_start, handle_set_key, handle_set_keys, handle_set_profile
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
@@ -79,6 +79,7 @@ def create_app() -> Application:
     # Handlers — order matters: specific before generic
     app.add_handler(CommandHandler("start",       handle_start))
     app.add_handler(CommandHandler("set_key",     handle_set_key))
+    app.add_handler(CommandHandler("set_keys",    handle_set_keys))  # alias (plural)
     app.add_handler(CommandHandler("set_profile", handle_set_profile))
     app.add_handler(CommandHandler("pipeline",    handle_pipeline_command))
     app.add_handler(CommandHandler("stats",       handle_stats_command))

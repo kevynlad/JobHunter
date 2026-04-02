@@ -27,29 +27,9 @@ from src.bot.key_router import get_key_pool
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
-# Career summary — loaded from external file (gitignored) to protect personal data
-_SUMMARY_PATH = Path(__file__).parent.parent.parent / "career_summary.txt"
+# Career summary — loaded dynamically from DB per user (see pipeline.py / tools.py)
+# Legacy file-based loading removed — multi-tenant requires explicit passing of career_summary
 _LEARNED_PREFS_PATH = Path(__file__).parent.parent.parent / "data" / "learned_preferences.md"
-
-def _load_career_summary() -> str:
-    """Load career summary: file → CAREER_SUMMARY env var → MASTER_PROFILE env var."""
-    if _SUMMARY_PATH.exists():
-        return _SUMMARY_PATH.read_text(encoding="utf-8")
-    # Priority 1: dedicated CAREER_SUMMARY env var (set in Railway)
-    career_summary = os.getenv("CAREER_SUMMARY", "").strip()
-    if career_summary:
-        print("[i] Using CAREER_SUMMARY env var for classifier.")
-        return career_summary
-    # Priority 2: fall back to full MASTER_PROFILE
-    master = os.getenv("MASTER_PROFILE", "").strip()
-    if master:
-        print("[i] Using MASTER_PROFILE env var for classifier (no CAREER_SUMMARY set).")
-        return master
-    print(f"[!] career_summary.txt not found and no env vars set.")
-    return "No career summary configured."
-
-
-CAREER_SUMMARY = _load_career_summary()  # fallback for local/legacy runs
 
 
 _current_key_idx = 0
@@ -201,7 +181,11 @@ def classify_job(
     Predict match score and extract metadata via Gemini LLM.
     career_summary: per-user summary (from DB). Falls back to global if None.
     """
-    active_summary = career_summary or CAREER_SUMMARY
+    if not career_summary:
+        raise ValueError(
+            f"classify_job requires a career_summary for user_id={user_id}. "
+            "Fetch it from the DB before calling classify_job."
+        )
     desc_truncated = (description[:4000] + "...") if description and len(description) > 4000 else (description or "No description provided.")
     
     learned_prefs = _LEARNED_PREFS_PATH.read_text(encoding="utf-8").strip() if _LEARNED_PREFS_PATH.exists() else ""
@@ -210,7 +194,7 @@ def classify_job(
     system_instruction = f"""Você é um estrategista de carreira pragmático e focado em resultados reais.
 Sua missão é avaliar vagas para o candidato abaixo, que busca a efetivação no mercado como Analista, deixando para trás o título de estagiário. 
 
-{active_summary}
+{career_summary}
 {prefs_section}
 """
 

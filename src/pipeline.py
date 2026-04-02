@@ -44,9 +44,25 @@ MIN_JOBS_TO_NOTIFY = 5          # Need at least this many good jobs
 MAX_JOBS_IN_NOTIFICATION = 15   # Show at most this many in Telegram
 
 
+def _notify_key_error(user_id: int, detail: str):
+    """Send a clear Telegram alert when a user's API key is missing or invalid."""
+    msg = (
+        "🔑 <b>Chave Gemini inválida ou ausente!</b>\n\n"
+        f"<i>{detail}</i>\n\n"
+        "Para corrigir, envie sua chave para o bot:\n"
+        "<i>\"Minha chave gratuita é AIza...\"</i>\n"
+        "Obtenha em: https://aistudio.google.com/app/apikey"
+    )
+    try:
+        send_telegram_message(msg, chat_id=user_id)
+    except Exception as e:
+        logger.error(f"Failed to send key error notification to {user_id}: {e}")
+
+
 def run_pipeline(user_id: int) -> dict:
     """
     Run the full JobHunter pipeline for a specific user (tenant isolation).
+    Requires: user must have a free key (RAG) configured in the database.
     """
     if not user_id:
         raise ValueError("run_pipeline requires a valid user_id for multi-tenant execution.")
@@ -62,10 +78,44 @@ def run_pipeline(user_id: int) -> dict:
         good_matches = []
         notified = False
 
+        # --- Guard: BYOK Strict Check ---
+        from src.bot.key_router import MissingUserKeyError, user_has_paid_key
+        from src.db.users import get_user
+        user_data = get_user(user_id)
+        if not user_data or not user_data.get("gemini_free_key"):
+            msg = (
+                "⚠️ <b>Pipeline interrompido!</b>\n\n"
+                "Você ainda não configurou sua chave Gemini (gratuita).\n"
+                "Envie uma mensagem para o bot dizendo:\n"
+                "<i>\"Minha chave é AIza...\"</i>\n\n"
+                "Obtenha sua chave em: https://aistudio.google.com/app/apikey"
+            )
+            send_telegram_message(msg, chat_id=user_id)
+            return {"total": 0, "good_matches": 0, "notified": False, "error": "missing_free_key"}
+
+        has_paid_key = user_has_paid_key(user_id)
+        career_summary = user_data.get("career_summary")
+        if not career_summary:
+            msg = (
+                "⚠️ <b>Pipeline interrompido!</b>\n\n"
+                "Seu perfil de carreira ainda não foi configurado.\n"
+                "Envie um resumo da sua experiência para o bot."
+            )
+            send_telegram_message(msg, chat_id=user_id)
+            return {"total": 0, "good_matches": 0, "notified": False, "error": "missing_career_summary"}
+
+        # LLM job limit: users without paid key get a penalty (only top 5)
+        max_llm_jobs = 30 if has_paid_key else 5
+        if not has_paid_key:
+            logger.warning(f"User {user_id}: no paid key — LLM classification limited to {max_llm_jobs} jobs (penalty mode).")
+
         # --- Step 1: Search + RAG Score ---
         logger.info("\n📌 Step 1: Searching and RAG scoring jobs...")
         try:
             all_scored = search_and_match(min_score=0, user_id=user_id)
+        except MissingUserKeyError as e:
+            _notify_key_error(user_id, str(e))
+            return {"total": 0, "good_matches": 0, "notified": False, "error": "missing_user_key"}
         except Exception as e:
             logger.error(f"❌ search_and_match failed: {e}", exc_info=True)
             all_scored = []
@@ -78,19 +128,20 @@ def run_pipeline(user_id: int) -> dict:
             logger.info(f"📊 RAG pre-filter: {len(all_scored)} → {len(rag_candidates)} candidates (≥{SCORE_THRESHOLD}%)")
             
             if rag_candidates:
-                # --- Step 3: Classify with Gemini LLM (FREE TIER for background) ---
-                logger.info("\n📌 Step 2: Deep analysis with Gemini AI (FREE Tier)...")
-                from src.db.users import get_user
-                user_data = get_user(user_id)
-                career_summary = user_data["career_summary"] if user_data else None
-                
-                classified = classify_jobs_batch(
-                    rag_candidates, 
-                    max_classify=30, 
-                    tier="paid", 
-                    user_id=user_id,
-                    career_summary=career_summary
-                )
+                # --- Step 3: Classify with Gemini LLM (PAID TIER) ---
+                limit_msg = "" if has_paid_key else f" (⚠️ sem chave paga — limitado a {max_llm_jobs} vagas)"
+                logger.info(f"\n📌 Step 2: Deep analysis with Gemini AI (PAID Tier){limit_msg}...")
+                try:
+                    classified = classify_jobs_batch(
+                        rag_candidates, 
+                        max_classify=max_llm_jobs, 
+                        tier="paid",
+                        user_id=user_id,
+                        career_summary=career_summary,
+                    )
+                except MissingUserKeyError as e:
+                    _notify_key_error(user_id, str(e))
+                    return {"total": 0, "good_matches": 0, "notified": False, "error": "missing_user_key"}
                 
                 # --- Step 4: Combined ranking + Filtering ---
                 for sj in classified:

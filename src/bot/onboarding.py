@@ -121,6 +121,14 @@ async def handle_set_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_html("❌ Erro ao salvar a chave. Tente novamente.")
 
 
+async def handle_set_keys(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /set_keys — Alias for /set_key (plural variant).
+    Some users naturally type /set_keys. Both commands do the same thing.
+    """
+    await handle_set_key(update, context)
+
+
 async def handle_set_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /set_profile <career summary text>
@@ -153,6 +161,7 @@ async def handle_set_profile(update: Update, context: ContextTypes.DEFAULT_TYPE)
         from src.db.users import set_career_profile
         set_career_profile(user_id, career_summary=text, career_vectors=vectors)
 
+        from src.bot.keyboards import main_menu_keyboard
         await update.message.reply_html(
             "✅ <b>Perfil configurado!</b>\n\n"
             "O CareerBot agora está pronto para buscar vagas personalizadas para você.\n\n"

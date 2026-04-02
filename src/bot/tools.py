@@ -245,6 +245,64 @@ def learn_from_job(job_id: str, user_id: int = None) -> str:
         return json.dumps({"error": "Erro ao tentar processar o aprendizado da vaga."})
 
 
+
+def save_api_keys(free_key: str, paid_key: str | None = None, user_id: int = None) -> str:
+    """
+    Onboarding tool: encrypt and save the user's Gemini API keys to the database.
+    Called by the agent when the user provides a key in natural language.
+    """
+    if not user_id:
+        return json.dumps({"error": "user_id is missing"})
+    if not free_key or not free_key.startswith("AIza"):
+        return json.dumps({"error": "Chave gratuita inválida. Deve começar com 'AIza'."})
+    if paid_key and not paid_key.startswith("AIza"):
+        return json.dumps({"error": "Chave paga inválida. Deve começar com 'AIza'."})
+    try:
+        from src.db.users import set_user_keys
+        set_user_keys(user_id, free_key=free_key, paid_key=paid_key or None)
+        msg = "✅ Chaves salvas com segurança!"
+        if paid_key:
+            msg += " (gratuita + paga configuradas — pipeline completo ativado)"
+        else:
+            msg += " (apenas gratuita — pipeline limitado a 5 vagas por rodada)"
+        return json.dumps({"success": True, "message": msg})
+    except Exception as e:
+        logging.exception(f"Error saving keys for user {user_id}")
+        return json.dumps({"error": f"Erro ao salvar chaves: {e}"})
+
+
+def update_career_profile(summary_text: str, user_id: int = None) -> str:
+    """
+    Onboarding tool: save career summary and rebuild RAG vectors for the user.
+    Called by the agent when the user provides their career description.
+    """
+    if not user_id:
+        return json.dumps({"error": "user_id is missing"})
+    if not summary_text or len(summary_text.strip()) < 100:
+        return json.dumps({"error": "Resumo muito curto. Descreva sua experiência em pelo menos 100 caracteres."})
+    try:
+        import asyncio
+        from src.rag.ingest import build_vector_db_for_user
+        from src.db.users import set_career_profile
+
+        # build_vector_db_for_user is async — run in event loop
+        try:
+            loop = asyncio.get_event_loop()
+            vectors = loop.run_until_complete(build_vector_db_for_user(user_id, career_text=summary_text))
+        except RuntimeError:
+            # If already in async context, create a new loop
+            vectors = asyncio.run(build_vector_db_for_user(user_id, career_text=summary_text))
+
+        set_career_profile(user_id, career_summary=summary_text, career_vectors=vectors)
+        return json.dumps({
+            "success": True,
+            "message": "✅ Perfil de carreira salvo e vetores gerados! O pipeline já pode rodar para você.",
+        })
+    except Exception as e:
+        logging.exception(f"Error updating profile for user {user_id}")
+        return json.dumps({"error": f"Erro ao atualizar perfil: {e}"})
+
+
 TOOL_DECLARATIONS = [
     {"name": "get_recent_jobs", "description": "Busca vagas recentes encontradas pelo pipeline. Use quando o usuário perguntar sobre vagas da semana, melhores vagas, ou qualquer listagem de oportunidades.", "parameters": {"type": "object", "properties": {"days": {"type": "integer", "description": "Dias atrás (padrão: 7)"}, "limit": {"type": "integer", "description": "Máximo (padrão: 10)"}}}},
     {"name": "get_job_detail", "description": "Retorna detalhes completos de uma vaga específica.", "parameters": {"type": "object", "properties": {"job_id": {"type": "string"}, "company": {"type": "string"}, "title": {"type": "string"}}}},
@@ -252,6 +310,40 @@ TOOL_DECLARATIONS = [
     {"name": "get_application_stats", "description": "Retorna estatísticas gerais.", "parameters": {"type": "object", "properties": {}}},
     {"name": "get_pending_followups", "description": "Lista vagas marcadas como interessante sem aplicação.", "parameters": {"type": "object", "properties": {}}},
     {"name": "learn_from_job", "description": "Extrai e salva competências de uma vaga.", "parameters": {"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]}},
+    {
+        "name": "save_api_keys",
+        "description": (
+            "Salva as chaves de API Gemini do usuário de forma segura e criptografada no banco de dados. "
+            "Use IMEDIATAMENTE quando o usuário fornecer uma chave (começa com 'AIza') em qualquer mensagem. "
+            "A chave gratuita é obrigatória. A chave paga é opcional mas aumenta o número de vagas analisadas pelo pipeline."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "free_key": {"type": "string", "description": "Chave Gemini gratuita (começa com AIza). Obrigatória."},
+                "paid_key": {"type": "string", "description": "Chave Gemini paga (opcional). Permite análise completa no pipeline."},
+            },
+            "required": ["free_key"],
+        },
+    },
+    {
+        "name": "update_career_profile",
+        "description": (
+            "Salva ou atualiza o resumo de carreira do usuário e regenera os vetores de busca (RAG). "
+            "Use quando o usuário quiser configurar ou alterar seu perfil. "
+            "Não use para atualizações parciais — o texto completo deve ser passado."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "summary_text": {
+                    "type": "string",
+                    "description": "Texto completo do resumo de carreira do usuário (mínimo 100 caracteres).",
+                },
+            },
+            "required": ["summary_text"],
+        },
+    },
 ]
 
 TOOL_EXECUTOR = {
@@ -261,4 +353,6 @@ TOOL_EXECUTOR = {
     "get_application_stats": get_application_stats,
     "get_pending_followups": get_pending_followups,
     "learn_from_job": learn_from_job,
+    "save_api_keys": save_api_keys,
+    "update_career_profile": update_career_profile,
 }

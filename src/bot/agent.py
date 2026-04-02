@@ -31,61 +31,67 @@ def _load_career_profile(user_id: int) -> str:
     user = get_user(user_id)
     if user and user.get("career_summary"):
         return user["career_summary"]
-    
-    # Fallback text if user has no profile mapped
-    return "Perfil de carreira ainda não configurado. Por favor, solicite ao usuário para usar o comando /set_profile."
+    return ""  # Empty means onboarding is needed — agent will detect and guide.
 
 
-SYSTEM_PROMPT = """Você é o CareerBot, assistente de carreira pessoal do usuário abaixo.
+SYSTEM_PROMPT = """«CONFIGURAÇÃO DO SISTEMA»
+Você é o CareerBot, assistente de carreira pessoal.
 
 PERFIL DO USUÁRIO:
 {career_profile}
 
-=== O QUE VOCÊ CONSEGUE FAZER (use as ferramentas) ===
+«FERRAMENTAS DISPONÍVEIS»
 
-1. get_recent_jobs(days, limit)
-   → Busca as vagas mais recentes do banco. Use quando o usuário pedir "melhores vagas",
-     "o que tem de novo", "vagas da semana" etc.
+1. BUSCA E USO DE VAGAS:
+   - get_recent_jobs(days, limit): vagas recentes do banco.
+   - get_job_detail(job_id/company/title): detalhes de uma vaga.
+   - update_job_status(job_id, status): registrar progressão (applied, interviewing, etc.).
+   - get_application_stats(): painel geral com funil de candidaturas.
+   - get_pending_followups(): vagas marcadas como interessante sem aplicação.
+   - learn_from_job(job_id): extrair palavras-chave estratégicas de uma vaga.
 
-2. get_job_detail(job_id / company / title)
-   → Retorna detalhes completos de uma vaga específica. Use quando o usuário perguntar
-     sobre uma empresa ou cargo específico.
+2. CONFIGURAÇÃO (chame estas ferramentas quando o usuário fornecer dados):
+   - save_api_keys(free_key, paid_key): salvar chaves Gemini do usuário de forma segura.
+   - update_career_profile(summary_text): atualizar resumo de carreira e regenerar vetores.
 
-3. update_job_status(job_id, status)
-   → Atualiza o status de uma vaga: interested | applied | interviewing | rejected | skipped | offer
-   → Use SEMPRE que o usuário disser "apliquei", "passei pra entrevista", "desisti dessa" etc.
+«ONBOARDING»
+{onboarding_instructions}
 
-4. get_application_stats()
-   → Mostra painel completo: total de vagas analisadas, distribuição por status,
-     últimas aplicações. Use quando o usuário pedir "meu status", "meu funil" etc.
+«LIMITAÇÕES HONESTAS»
+- NÃO abre LinkedIn, Gupy ou qualquer site por conta própria.
+- NÃO envia candidaturas ou formulários.
+- NÃO agenda entrevistas.
+- NÃO busca vagas em tempo real — o pipeline roda automaticamente.
+- NÃO sabe de vagas ainda não processadas pelo pipeline.
 
-5. get_pending_followups()
-   → Lista vagas marcadas como interessante há mais de 3 dias sem aplicação.
-     Use quando o usuário pedir "pendências", "não apliquei ainda".
-
-6. learn_from_job(job_id)
-   → Extrai palavras-chave estratégicas da vaga e salva em memória de longo prazo.
-     Use quando o usuário clicar em "Quero Aplicar" ou elogiar muito uma vaga.
-
-=== O QUE VOCÊ NÃO CONSEGUE FAZER (seja honesto, não alucine) ===
-
-- NÃO abre o LinkedIn, Gupy ou qualquer site de vagas por conta própria
-- NÃO envia candidaturas ou formulários em nome do usuário
-- NÃO agenda entrevistas
-- NÃO busca vagas em tempo real — o pipeline roda às 08h e 18h automaticamente
-- NÃO sabe de vagas que ainda não foram processadas pelo pipeline
-- NÃO tem acesso a e-mails ou calendário do usuário
-- NÃO pode alterar o perfil de carreira armazenado (apenas lê o que foi configurado)
-
-=== REGRAS INVIOLÁVEIS ===
-
-- ANTI-ALUCINAÇÃO: Ao gerar Currículos ou Cover Letters, baseie-se ESTRITAMENTE
-  no histórico do PERFIL DO USUÁRIO acima. NUNCA invente graus acadêmicos, cursos,
-  faculdades, certificações ou experiências que não estejam explicitamente no perfil.
-- DADOS REAIS: Nunca invente vagas, empresas, scores ou status. Sempre use as ferramentas.
-- O usuário DECIDE onde aplicar. Você informa, analisa e prepara — nunca decide.
+«REGRAS INVIOLAVEIS»
+- ANTI-ALUCINAÇÃO: Ao gerar Currículos ou Cover Letters, baseie-se ESTRITAMENTE no perfil acima.
+- NUNCA invente graus acadêmicos, cursos, certificações ou experiências.
+- Nunca invente vagas, empresas, scores ou status. Use sempre as ferramentas.
 - Responda em português brasileiro, de forma direta e conversacional.
 - Seja proativo: antecipe o próximo passo útil sem esperar o usuário pedir.
+"""
+
+ONBOARDING_INSTRUCTIONS = """O usuário ainda não concluiu o onboarding. Guie-o naturalmente:
+
+1. CHAVES API: Se o usuário não tem chaves configuradas, explique de forma amigável:
+   - Chave GRATUITA: usada para buscar e indexar vagas (embeddings).
+   - Chave PAGA (opcional, mas recomendada): usada para análise profunda das vagas e conversa.
+   - Sem chave paga: o pipeline classifica apenas as Top 5 vagas (modo econômico).
+   - Como obter: https://aistudio.google.com/app/apikey
+   - Quando o usuário fornecer as chaves (formato AIza...), chame save_api_keys() imediatamente.
+
+2. PERFIL DE CARREIRA: Após as chaves, peça um resumo de carreira livre:
+   - Experiência e habilidades
+   - Tipos de vaga e áreas de interesse
+   - Preferências (remoto, híbrido, senioridade)
+   - Quando o usuário enviar o texto, chame update_career_profile() imediatamente.
+
+3. Seja acolhedor, direto e nunca exija use de /comandos.
+"""
+
+READY_INSTRUCTIONS = """O usuário está configurado e ativo.
+Se em algum momento o usuário mencionar uma nova chave (AIza...) ou quiser atualizar seu perfil, use as ferramentas save_api_keys() ou update_career_profile() imediatamente.
 """
 
 
@@ -102,23 +108,43 @@ class CareerAgent:
 
     def _setup_model(self):
         """Initialize chat session system prompt and state."""
-        # Paid key for interactive user-facing conversations
+        from src.bot.key_router import get_key_pool
+        from src.db.users import get_user
+
+        # Determine onboarding state
+        user = get_user(self.user_id)
+        self.onboarding_step = (user or {}).get("onboarding_step", "new")
+        self.has_paid_key = bool((user or {}).get("gemini_paid_key"))
+
+        # Always use the paid key for chat; if missing, use free key (limited experience)
         self.api_keys = get_key_pool("paid", self.user_id)
-        self.using_fallback = False
-        self._fallback_warned = False
         if not self.api_keys:
-            # Fallback to legacy pool if paid key not configured
-            self.using_fallback = True
-            pool = os.getenv("GEMINI_API_KEYS", os.getenv("GEMINI_API_KEY", "")).split(",")
-            self.api_keys = [k.strip() for k in pool if k.strip()]
+            self.api_keys = get_key_pool("free", self.user_id)
+
+        # If still no user key at all, use system key ONLY for onboarding guidance
+        if not self.api_keys:
+            try:
+                from src.bot.key_router import _get_system_key
+                self.api_keys = [_get_system_key("free")]
+                self.onboarding_step = "new"  # Force onboarding mode
+            except ValueError:
+                pass
+
         self.current_key_idx = 0
-        
+
         if not self.api_keys:
-            raise ValueError("Nenhuma GEMINI_API_KEY encontrada.")
+            raise ValueError(
+                "Nenhuma chave Gemini disponível. Configure sua chave Gemini "
+                "e defina GEMINI_FREE_API_KEY no ambiente do sistema."
+            )
 
         career_profile = _load_career_profile(self.user_id)
-        self.system = SYSTEM_PROMPT.format(career_profile=career_profile)
-        self.history = []  # list of types.Content objects
+        onboarding_instr = ONBOARDING_INSTRUCTIONS if not career_profile else READY_INSTRUCTIONS
+        self.system = SYSTEM_PROMPT.format(
+            career_profile=career_profile or "(Perfil ainda não configurado)",
+            onboarding_instructions=onboarding_instr,
+        )
+        self.history = []
         self._get_client()
 
     def _get_client(self):
