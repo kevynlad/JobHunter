@@ -223,7 +223,7 @@ def search_and_match(min_score: float = 0, user_id: int | None = None) -> list[S
     
     # Call batch API
     try:
-        batch_results = score_jobs_batch(jobs_to_score)
+        batch_results = score_jobs_batch(jobs_to_score, user_id=user_id)
     except Exception as e:
         logger.error(f"❌ RAG Batch scoring failed: {e}", exc_info=True)
         batch_results = []
