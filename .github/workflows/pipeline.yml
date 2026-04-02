@@ -28,8 +28,12 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          set -eo pipefail
+          echo "[$(date -u +'%H:%M:%S')] Upgrading pip..."
+          python -m pip install --upgrade pip --progress-bar off
+          echo "[$(date -u +'%H:%M:%S')] Installing requirements (verbose)..."
+          pip install --progress-bar off -r requirements.txt 2>&1
+          echo "[$(date -u +'%H:%M:%S')] ✅ Dependencies installed successfully."
 
       - name: Check Environment Health
         env:

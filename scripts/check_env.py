@@ -1,68 +1,189 @@
+"""
+scripts/check_env.py
+━━━━━━━━━━━━━━━━━━━
+Diagnóstico estruturado do ambiente de execução do GitHub Actions.
+Reporta presença de secrets, conectividade TCP e resolução DNS.
+NUNCA imprime os valores reais das secrets.
+"""
+
 import os
 import socket
 import sys
 import urllib.parse
+from datetime import datetime, timezone
+
+
+def ts():
+    """Timestamp UTC para logs estruturados."""
+    return datetime.now(timezone.utc).strftime("%H:%M:%S")
+
+
+def section(title: str):
+    print(f"\n{'─' * 60}")
+    print(f"[{ts()}] SECTION: {title}")
+    print(f"{'─' * 60}")
+
+
+def ok(msg: str):
+    print(f"[{ts()}] ✅  {msg}")
+
+
+def fail(msg: str):
+    print(f"[{ts()}] ❌  {msg}")
+
+
+def warn(msg: str):
+    print(f"[{ts()}] ⚠️   {msg}")
+
+
+def info(msg: str):
+    print(f"[{ts()}]     {msg}")
+
 
 def check_env():
     print("=" * 60)
-    print("   🔍 JOBHUNTER PIPELINE DIAGNOSTIC REPORT")
+    print(f"[{ts()}] 🔍  JOBHUNTER PIPELINE DIAGNOSTIC REPORT")
+    print(f"       Python {sys.version}")
+    print(f"       CWD: {os.getcwd()}")
     print("=" * 60)
-    
-    # 1. Environment Variables Check (existence only)
-    required_vars = [
-        "DATABASE_URL",
-        "SUPABASE_URL",
-        "SUPABASE_SERVICE_KEY",
-        "ENCRYPTION_MASTER_KEY",
-        "TELEGRAM_BOT_TOKEN",
-        "GEMINI_API_KEYS",
-        "TARGET_USER_ID"
-    ]
-    
-    print("\n[Section 1: Environment Variables]")
-    for var in required_vars:
-        val = os.environ.get(var, "")
-        status = "✅ DEFINED" if val else "❌ MISSING"
-        # Check if it looks truncated or suspicious
-        detail = f" (length: {len(val)})" if val else ""
-        print(f"  {var:25}: {status}{detail}")
 
-    # 2. Database Connectivity Test
-    print("\n[Section 2: Database Connectivity]")
+    # ─────────────────────────────────────────────────────────
+    # SECTION 1: Environment Variables
+    # ─────────────────────────────────────────────────────────
+    section("1. Environment Variables (Secrets)")
+
+    required = {
+        "DATABASE_URL":         "Primary DB connection (Transaction Pooler preferred)",
+        "POSTGRES_URL":         "Fallback alias – set by Vercel-Supabase integration",
+        "SUPABASE_URL":         "REST API URL for Supabase SDK",
+        "SUPABASE_SERVICE_KEY": "Admin key for server-side Supabase access",
+        "ENCRYPTION_MASTER_KEY":"Fernet master key for BYOK encryption",
+        "TELEGRAM_BOT_TOKEN":   "Telegram Bot API token",
+        "GEMINI_API_KEYS":      "Comma-separated fallback Gemini keys",
+    }
+
+    any_missing = False
+    for var, description in required.items():
+        val = os.environ.get(var, "")
+        if val:
+            ok(f"{var:<28} defined  (len={len(val)})  # {description}")
+        else:
+            fail(f"{var:<28} MISSING  # {description}")
+            any_missing = True
+
+    if any_missing:
+        warn("One or more required variables are missing. The pipeline WILL fail.")
+    else:
+        ok("All required environment variables are present.")
+
+    # ─────────────────────────────────────────────────────────
+    # SECTION 2: Database URL Analysis
+    # ─────────────────────────────────────────────────────────
+    section("2. Database URL Analysis")
+
     db_url = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
+    if not db_url:
+        fail("No DB URL found (neither DATABASE_URL nor POSTGRES_URL). Cannot continue.")
+    else:
+        try:
+            parsed = urllib.parse.urlparse(db_url)
+            host = parsed.hostname
+            port = parsed.port or 5432
+            scheme = parsed.scheme
+
+            info(f"Scheme   : {scheme}")
+            info(f"Host     : {host}")
+            info(f"Port     : {port}")
+            info(f"DB Name  : {parsed.path.lstrip('/')}")
+
+            # Warn about common pool mismatches
+            if port == 5432:
+                warn("Using direct connection port (5432). Recommended: Transaction Pooler port 6543 for serverless.")
+            elif port == 6543:
+                ok("Using Transaction Pooler port (6543). Good for serverless.")
+
+            # Check URL scheme compatibility (psycopg2 needs postgresql://)
+            if scheme == "postgres":
+                warn("Scheme is 'postgres://' — psycopg2 requires 'postgresql://'. May cause connection errors.")
+            elif scheme == "postgresql":
+                ok("Scheme is 'postgresql://'. Compatible with psycopg2.")
+
+        except Exception as e:
+            fail(f"Could not parse DATABASE_URL: {e}")
+
+    # ─────────────────────────────────────────────────────────
+    # SECTION 3: TCP Connectivity
+    # ─────────────────────────────────────────────────────────
+    section("3. TCP Connectivity to Database Host")
+
     if db_url:
         try:
-            # Parse URL to get host and port
-            up_result = urllib.parse.urlparse(db_url)
-            host = up_result.hostname
-            port = up_result.port or 5432
-            
-            print(f"  Connecting to: {host}:{port}...")
-            
-            # Simple TCP socket check
+            parsed = urllib.parse.urlparse(db_url)
+            host = parsed.hostname
+            port = parsed.port or 5432
+            info(f"Attempting TCP connection to {host}:{port} (timeout=10s)...")
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(10)
             s.connect((host, port))
             s.close()
-            print("  ✅ TCP Connection successful!")
+            ok(f"TCP handshake to {host}:{port} successful. Network path is open.")
+        except socket.timeout:
+            fail(f"TCP connection to {host}:{port} timed out. Firewall or IP block?")
+        except socket.gaierror as e:
+            fail(f"DNS resolution failed for '{host}': {e}")
         except Exception as e:
-            print(f"  ❌ Connection failed: {e}")
+            fail(f"Connection error: {type(e).__name__}: {e}")
     else:
-        print("  ⚠️ Skipped: No DATABASE_URL found.")
+        warn("Skipped (no DB URL).")
 
-    # 3. DNS / Networking Check
-    print("\n[Section 3: DNS & Networking]")
-    test_hosts = ["api.telegram.org", "generativelanguage.googleapis.com", "google.com"]
-    for host in test_hosts:
+    # ─────────────────────────────────────────────────────────
+    # SECTION 4: DNS Resolution for External APIs
+    # ─────────────────────────────────────────────────────────
+    section("4. DNS Resolution for External APIs")
+
+    apis = [
+        "api.telegram.org",
+        "generativelanguage.googleapis.com",
+    ]
+    if db_url:
+        try:
+            host = urllib.parse.urlparse(db_url).hostname
+            if host:
+                apis.insert(0, host)
+        except Exception:
+            pass
+
+    for host in apis:
         try:
             ip = socket.gethostbyname(host)
-            print(f"  ✅ Resolved {host:35} to {ip}")
-        except Exception as e:
-            print(f"  ❌ Could not resolve {host}: {e}")
+            ok(f"Resolved {host:<45} → {ip}")
+        except socket.gaierror as e:
+            fail(f"Could not resolve {host}: {e}")
+
+    # ─────────────────────────────────────────────────────────
+    # SECTION 5: Python path sanity check
+    # ─────────────────────────────────────────────────────────
+    section("5. Python Path & Module Sanity")
+
+    modules_to_check = [
+        ("psycopg2", "PostgreSQL driver"),
+        ("supabase", "Supabase SDK"),
+        ("telegram", "python-telegram-bot"),
+        ("google.genai", "Gemini AI SDK"),
+        ("cryptography", "Fernet encryption"),
+        ("jobspy", "JobSpy scraper"),
+    ]
+    for mod, label in modules_to_check:
+        try:
+            __import__(mod)
+            ok(f"{mod:<25} importable  # {label}")
+        except ImportError as e:
+            fail(f"{mod:<25} IMPORT ERROR: {e}  # {label}")
 
     print("\n" + "=" * 60)
-    print("   📊 END OF DIAGNOSTIC")
+    print(f"[{ts()}] 📊  END OF DIAGNOSTIC")
     print("=" * 60)
+
 
 if __name__ == "__main__":
     check_env()
