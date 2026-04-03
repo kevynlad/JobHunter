@@ -13,6 +13,7 @@ Multi-tenant rewrite:
 import json
 import os
 import math
+import time
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
@@ -21,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_MODEL = "gemini-embedding-2"
+BATCH_SIZE = 80
+BATCH_DELAY_SECONDS = 80
+MAX_RETRIES = 3
 
 # Local file only used as fallback during local development (user_id=None)
 _LOCAL_VECTOR_STORE_PATH = Path(__file__).parent.parent.parent / "data" / "career_vectors.json"
@@ -113,23 +117,58 @@ def _embed_query(text: str, user_id: int | None = None) -> list[float]:
 
 
 def _embed_batch(texts: list[str], user_id: int | None = None) -> list[list[float]]:
-    """Embed a list of texts using Gemini API in batches of 100."""
+    """Embed a list of texts using Gemini API in batches of 80 with 80s delay between batches.
+
+    Each item in a batch counts as 1 request against the 100 RPM free tier limit.
+    With BATCH_SIZE=80 and 80s delay, we stay safely under the limit.
+    """
     from google import genai
+    from google.genai import errors as genai_errors
     from src.bot.key_router import get_key
 
     api_key = get_key("free", user_id=user_id)
     client = genai.Client(api_key=api_key)
 
     all_embeddings = []
-    BATCH_SIZE = 100
     for i in range(0, len(texts), BATCH_SIZE):
         batch = texts[i:i + BATCH_SIZE]
-        result = client.models.embed_content(
-            model=EMBEDDING_MODEL,
-            contents=batch,
-        )
-        for item in result.embeddings:
-            all_embeddings.append(item.values)
+        batch_num = (i // BATCH_SIZE) + 1
+        total_batches = math.ceil(len(texts) / BATCH_SIZE)
+        logger.info(f"    📦 Embedding batch {batch_num}/{total_batches} ({len(batch)} items)...")
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                result = client.models.embed_content(
+                    model=EMBEDDING_MODEL,
+                    contents=batch,
+                )
+                for item in result.embeddings:
+                    all_embeddings.append(item.values)
+                break
+            except genai_errors.ClientError as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    retry_after = 90
+                    if hasattr(e, 'message') and "retry in" in str(e.message).lower():
+                        import re
+                        match = re.search(r"retry in ([\d.]+)s", str(e.message), re.IGNORECASE)
+                        if match:
+                            retry_after = float(match.group(1)) + 5
+                    logger.warning(f"    ⏳ Rate limit hit, waiting {retry_after:.0f}s (attempt {attempt+1}/{MAX_RETRIES})...")
+                    time.sleep(retry_after)
+                else:
+                    raise
+            except Exception:
+                if attempt < MAX_RETRIES - 1:
+                    wait = 10 * (attempt + 1)
+                    logger.warning(f"    ⚠️ Embedding error, retrying in {wait}s ({attempt+1}/{MAX_RETRIES})...")
+                    time.sleep(wait)
+                else:
+                    raise
+
+        if i + BATCH_SIZE < len(texts):
+            logger.info(f"    ⏳ Waiting {BATCH_DELAY_SECONDS}s before next batch...")
+            time.sleep(BATCH_DELAY_SECONDS)
+
     return all_embeddings
 
 
