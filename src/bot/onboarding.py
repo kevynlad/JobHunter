@@ -17,31 +17,40 @@ logger = logging.getLogger(__name__)
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /start — Cadastra o usuário se não existir e direciona para o onboarding.
+    /start — Cadastra o usuário e inicia o onboarding CONVERSACIONAL via Agente.
     """
     tg_user = update.effective_user
     user_id = tg_user.id
 
-    # Upsert user (creates if new, updates name if existing)
+    # Upsert user (registration)
     result = upsert_user(
         user_id=user_id,
         first_name=tg_user.first_name or "",
         username=tg_user.username,
     )
 
-    step = result.get("onboarding_step", "new")
+    # Show typing indicator
+    await context.bot.send_chat_action(
+        chat_id=update.effective_chat.id,
+        action="typing"
+    )
 
-    if step == "new" or step == "keys_set" and _missing_keys(user_id):
-        await _send_welcome_new(update, tg_user.first_name)
-    elif step == "keys_set":
-        await _send_setup_profile(update, tg_user.first_name)
-    else:
-        # Already onboarded — show main menu
-        await update.message.reply_html(
-            f"Bem-vindo de volta, <b>{tg_user.first_name}</b>! 👋\n\n"
-            "Use o menu abaixo ou escreva o que precisar.",
-            reply_markup=main_menu_keyboard(),
-        )
+    # Delegate the welcome to the agent
+    from src.bot.agent import get_agent
+    agent = get_agent(user_id)
+    
+    # Internal trigger to start onboarding dialogue
+    welcome_prompt = (
+        f"[SISTEMA] O usuário {tg_user.first_name} acabou de dar /start. "
+        "Dê as boas-vindas de forma calorosa e inicie o onboarding conversacional, "
+        "explicando a necessidade das chaves API Gemini."
+    )
+    response = await agent.chat_async(welcome_prompt)
+
+    await update.message.reply_html(
+        response,
+        reply_markup=main_menu_keyboard() if result.get("onboarding_step") == "ready" else None
+    )
 
 
 async def _send_welcome_new(update: Update, name: str):
@@ -94,6 +103,11 @@ async def handle_set_key(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     free_key = args[0].strip()
     paid_key = args[1].strip() if len(args) > 1 else None
+
+    if free_key.startswith("[") and free_key.endswith("]"):
+        free_key = free_key[1:-1].strip()
+    if paid_key and paid_key.startswith("[") and paid_key.endswith("]"):
+        paid_key = paid_key[1:-1].strip()
 
     if not free_key.startswith("AIza"):
         await update.message.reply_html(

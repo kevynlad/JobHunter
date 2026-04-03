@@ -246,6 +246,16 @@ def learn_from_job(job_id: str, user_id: int = None) -> str:
 
 
 
+def _clean_api_key(key: str) -> str:
+    """Remove brackets, quotes, and whitespace from API key strings."""
+    key = key.strip()
+    if key.startswith("[") and key.endswith("]"):
+        key = key[1:-1].strip()
+    if key.startswith('"') and key.endswith('"'):
+        key = key[1:-1]
+    return key
+
+
 def save_api_keys(free_key: str, paid_key: str | None = None, user_id: int = None) -> str:
     """
     Onboarding tool: encrypt and save the user's Gemini API keys to the database.
@@ -253,6 +263,11 @@ def save_api_keys(free_key: str, paid_key: str | None = None, user_id: int = Non
     """
     if not user_id:
         return json.dumps({"error": "user_id is missing"})
+
+    free_key = _clean_api_key(free_key)
+    if paid_key:
+        paid_key = _clean_api_key(paid_key)
+
     if not free_key or not free_key.startswith("AIza"):
         return json.dumps({"error": "Chave gratuita inválida. Deve começar com 'AIza'."})
     if paid_key and not paid_key.startswith("AIza"):
