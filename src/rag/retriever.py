@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-EMBEDDING_MODEL = "gemini-embedding-2"
+EMBEDDING_MODEL = "gemini-embedding-2-preview"
 BATCH_SIZE = 80
 BATCH_DELAY_SECONDS = 80
 MAX_RETRIES = 3
