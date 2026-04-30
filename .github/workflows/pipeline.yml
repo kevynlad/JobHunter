@@ -41,8 +41,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          GEMINI_FREE_API_KEY: ${{ secrets.GEMINI_FREE_API_KEY }}
-          GEMINI_PAID_API_KEY: ${{ secrets.GEMINI_PAID_API_KEY }}
         run: |
           PYTHONPATH=. python scripts/check_env.py
 
@@ -51,12 +49,8 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          ENCRYPTION_MASTER_KEY: ${{ secrets.ENCRYPTION_MASTER_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          # System-level fallback keys — used ONLY for onboarding (new users without BYOK)
-          GEMINI_FREE_API_KEY: ${{ secrets.GEMINI_FREE_API_KEY }}
-          GEMINI_PAID_API_KEY: ${{ secrets.GEMINI_PAID_API_KEY }}
-           # Target user (optional — passed via workflow_dispatch from Telegram)
+          # Target user (optional — passed via workflow_dispatch from Telegram)
           TARGET_USER_ID: ${{ github.event.inputs.user_id }}
         run: |
           # If a specific user triggered this via Telegram, pass it down
