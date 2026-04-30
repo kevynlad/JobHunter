@@ -15,8 +15,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from src.rag.retriever import score_job
-from src.jobs.classifier import classify_job
-from src.bot.key_router import get_key
 from src.db.client import get_client
 
 LEARNED_PREFS_PATH = Path(__file__).parent.parent.parent / "data" / "learned_preferences.md"
@@ -226,7 +224,9 @@ def learn_from_job(job_id: str, user_id: int = None) -> str:
             return json.dumps({"error": "Vaga sem descrição suficiente para aprender."})
 
         from google import genai
-        api_key = get_key("paid", user_id)
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not api_key:
+            return json.dumps({"error": "GEMINI_API_KEY não configurada."})
         ai_client = genai.Client(api_key=api_key)
         prompt = (f"Leia esta vaga:\nTítulo: {title}\nEmpresa: {company}\n"
                   f"Descrição: {desc[:4000]}\n\nListe apenas 3 a 5 habilidades "
@@ -234,10 +234,6 @@ def learn_from_job(job_id: str, user_id: int = None) -> str:
 
         response = ai_client.models.generate_content(model="gemini-2.0-flash-lite", contents=prompt)
         keywords = response.text.replace("\n", "").strip()
-
-        LEARNED_PREFS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(LEARNED_PREFS_PATH, "a", encoding="utf-8") as f:
-            f.write(f"- {title} ({company}): {keywords}\n")
 
         return json.dumps({"success": True, "learned_keywords": keywords}, ensure_ascii=False)
     except Exception:
@@ -256,34 +252,18 @@ def _clean_api_key(key: str) -> str:
     return key
 
 
-def save_api_keys(free_key: str, paid_key: str | None = None, user_id: int = None) -> str:
+def save_api_keys(free_key: str = "", paid_key: str | None = None, user_id: int = None) -> str:
     """
-    Onboarding tool: encrypt and save the user's Gemini API keys to the database.
-    Called by the agent when the user provides a key in natural language.
+    BYOK legado — não mais usado. Informa ao usuário que o pipeline é centralizado.
     """
-    if not user_id:
-        return json.dumps({"error": "user_id is missing"})
-
-    free_key = _clean_api_key(free_key)
-    if paid_key:
-        paid_key = _clean_api_key(paid_key)
-
-    if not free_key or not free_key.startswith("AIza"):
-        return json.dumps({"error": "Chave gratuita inválida. Deve começar com 'AIza'."})
-    if paid_key and not paid_key.startswith("AIza"):
-        return json.dumps({"error": "Chave paga inválida. Deve começar com 'AIza'."})
-    try:
-        from src.db.users import set_user_keys
-        set_user_keys(user_id, free_key=free_key, paid_key=paid_key or None)
-        msg = "✅ Chaves salvas com segurança!"
-        if paid_key:
-            msg += " (gratuita + paga configuradas — pipeline completo ativado)"
-        else:
-            msg += " (apenas gratuita — pipeline limitado a 5 vagas por rodada)"
-        return json.dumps({"success": True, "message": msg})
-    except Exception as e:
-        logging.exception(f"Error saving keys for user {user_id}")
-        return json.dumps({"error": f"Erro ao salvar chaves: {e}"})
+    return json.dumps({
+        "success": True,
+        "message": (
+            "ℹ️ O sistema não precisa mais de chaves pessoais.\n"
+            "O pipeline usa provedores LLM centralizados (NVIDIA NIM + Groq).\n"
+            "Configure seu perfil de carreira com /set_profile para começar!"
+        )
+    })
 
 
 def update_career_profile(summary_text: str, user_id: int = None) -> str:
@@ -318,6 +298,62 @@ def update_career_profile(summary_text: str, user_id: int = None) -> str:
         return json.dumps({"error": f"Erro ao atualizar perfil: {e}"})
 
 
+def update_search_config(
+    career_paths_json: str = "",
+    locations: str = "",
+    include_remote: bool = True,
+    max_days_old: int = 7,
+    user_id: int = None,
+) -> str:
+    """
+    Salva a configuração de busca de vagas do usuário (quais cargos procurar, em qual cidade).
+    Chamada pelo agente quando o usuário descreve suas preferências de busca.
+
+    Args:
+        career_paths_json: JSON string com lista de career paths.
+            Ex: '[{"name": "Dados", "queries": ["Data Analyst", "Analista de Dados"], "weight": 1.0}]'
+        locations: Localidades separadas por vírgula. Ex: 'São Paulo, Brazil'
+        include_remote: True para incluir vagas remotas.
+        max_days_old: Quantos dias de vagas buscar (7 = semana passada).
+        user_id: Injetado automaticamente pelo agente.
+    """
+    if not user_id:
+        return json.dumps({"error": "user_id is missing"})
+
+    from src.db.users import set_search_config
+    from src.jobs.config import CAREER_PATHS as DEFAULT_PATHS, LOCATIONS as DEFAULT_LOCS
+
+    # Parse career_paths
+    if career_paths_json:
+        try:
+            career_paths = json.loads(career_paths_json)
+            if not isinstance(career_paths, list) or not career_paths:
+                return json.dumps({"error": "career_paths_json deve ser uma lista JSON não-vazia."})
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"JSON inválido em career_paths_json: {e}"})
+    else:
+        career_paths = DEFAULT_PATHS
+
+    # Parse locations
+    locs = [l.strip() for l in locations.split(",") if l.strip()] if locations else DEFAULT_LOCS
+
+    config = {
+        "career_paths":   career_paths,
+        "locations":      locs,
+        "include_remote": include_remote,
+        "max_days_old":   max_days_old,
+    }
+
+    ok = set_search_config(user_id, config)
+    if ok:
+        paths_summary = ", ".join(cp["name"] for cp in career_paths)
+        return json.dumps({
+            "success": True,
+            "message": f"Configuração salva! Paths: {paths_summary} | Locais: {', '.join(locs)}",
+        }, ensure_ascii=False)
+    return json.dumps({"error": "Falha ao salvar no banco. Tente novamente."})
+
+
 TOOL_DECLARATIONS = [
     {"name": "get_recent_jobs", "description": "Busca vagas recentes encontradas pelo pipeline. Use quando o usuário perguntar sobre vagas da semana, melhores vagas, ou qualquer listagem de oportunidades.", "parameters": {"type": "object", "properties": {"days": {"type": "integer", "description": "Dias atrás (padrão: 7)"}, "limit": {"type": "integer", "description": "Máximo (padrão: 10)"}}}},
     {"name": "get_job_detail", "description": "Retorna detalhes completos de uma vaga específica.", "parameters": {"type": "object", "properties": {"job_id": {"type": "string"}, "company": {"type": "string"}, "title": {"type": "string"}}}},
@@ -342,6 +378,38 @@ TOOL_DECLARATIONS = [
         },
     },
     {
+        "name": "update_search_config",
+        "description": (
+            "Salva a configuração de busca de vagas do usuário: quais cargos buscar, em qual cidade, "
+            "se inclui remotas e quantos dias de vagas considerar. "
+            "Use quando o usuário disser 'quero buscar vagas de X' ou 'mude minha busca para Y'. "
+            "career_paths_json é uma lista JSON com name, queries[] e weight opcional. "
+            "locations é uma string separada por vírgulas (ex: 'São Paulo, Brazil')."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "career_paths_json": {
+                    "type": "string",
+                    "description": "JSON com lista de career paths. Ex: [{\"name\": \"Dados\", \"queries\": [\"Data Analyst\", \"Analista de Dados\"], \"weight\": 1.0}]",
+                },
+                "locations": {
+                    "type": "string",
+                    "description": "Cidades de busca separadas por vírgula. Ex: 'São Paulo, Brazil'",
+                },
+                "include_remote": {
+                    "type": "boolean",
+                    "description": "Incluir vagas remotas? (padrão: true)",
+                },
+                "max_days_old": {
+                    "type": "integer",
+                    "description": "Quantos dias de vagas buscar (padrão: 7)",
+                },
+            },
+            "required": ["career_paths_json"],
+        },
+    },
+    {
         "name": "update_career_profile",
         "description": (
             "Salva ou atualiza o resumo de carreira do usuário e regenera os vetores de busca (RAG). "
@@ -362,12 +430,13 @@ TOOL_DECLARATIONS = [
 ]
 
 TOOL_EXECUTOR = {
-    "get_recent_jobs": get_recent_jobs,
-    "get_job_detail": get_job_detail,
-    "update_job_status": update_job_status,
+    "get_recent_jobs":      get_recent_jobs,
+    "get_job_detail":       get_job_detail,
+    "update_job_status":    update_job_status,
     "get_application_stats": get_application_stats,
     "get_pending_followups": get_pending_followups,
-    "learn_from_job": learn_from_job,
-    "save_api_keys": save_api_keys,
+    "learn_from_job":       learn_from_job,
+    "save_api_keys":        save_api_keys,          # stub — mantido para compatibilidade
     "update_career_profile": update_career_profile,
+    "update_search_config": update_search_config,
 }

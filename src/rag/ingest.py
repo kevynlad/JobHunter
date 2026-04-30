@@ -81,9 +81,11 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
     Uses 'gemini-embedding-001' which avoids the v1beta NOT_FOUND issues.
     """
     from google import genai
-    from src.bot.key_router import get_key
+    from src.db.client import get_vault_secret
 
-    api_key = get_key("free")
+    api_key = os.getenv("GEMINI_API_KEY", "").strip() or get_vault_secret("GEMINI_API_KEY")
+    if not api_key:
+        raise EnvironmentError("GEMINI_API_KEY não configurada no ambiente nem no Vault para embeddings.")
     client = genai.Client(api_key=api_key)
 
     embeddings = []

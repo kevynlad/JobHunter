@@ -102,11 +102,13 @@ def _get_store(user_id: int | None) -> dict:
 # ─────────────────────────────────────────────────────────────
 
 def _embed_query(text: str, user_id: int | None = None) -> list[float]:
-    """Embed a single query text using Gemini API."""
+    """Embed a single query text using Gemini API (system key)."""
     from google import genai
-    from src.bot.key_router import get_key
+    from src.db.client import get_vault_secret
 
-    api_key = get_key("free", user_id=user_id)
+    api_key = os.getenv("GEMINI_API_KEY", "").strip() or get_vault_secret("GEMINI_API_KEY")
+    if not api_key:
+        raise EnvironmentError("GEMINI_API_KEY não configurada no ambiente nem no Vault para embeddings.")
     client = genai.Client(api_key=api_key)
 
     result = client.models.embed_content(
@@ -124,9 +126,11 @@ def _embed_batch(texts: list[str], user_id: int | None = None) -> list[list[floa
     """
     from google import genai
     from google.genai import errors as genai_errors
-    from src.bot.key_router import get_key
+    from src.db.client import get_vault_secret
 
-    api_key = get_key("free", user_id=user_id)
+    api_key = os.getenv("GEMINI_API_KEY", "").strip() or get_vault_secret("GEMINI_API_KEY")
+    if not api_key:
+        raise EnvironmentError("GEMINI_API_KEY não configurada no ambiente nem no Vault para embeddings.")
     client = genai.Client(api_key=api_key)
 
     all_embeddings = []

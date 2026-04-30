@@ -40,24 +40,33 @@ async def handle_pipeline_command(update: Update, context: ContextTypes.DEFAULT_
     import os
     github_token = os.getenv("GITHUB_TOKEN", "").strip()
     if github_token:
-        # Padrão para o repo de onde o workflow roda
         repo = os.getenv("GITHUB_REPOSITORY_NAME", "kevynlad/JobHunter")
         url = f"https://api.github.com/repos/{repo}/actions/workflows/pipeline.yml/dispatches"
         headers = {
             "Accept": "application/vnd.github.v3+json",
             "Authorization": f"token {github_token}",
         }
-        payload = {"ref": "main", "inputs": {"user_id": str(update.effective_user.id)}}
+        # FIX: Your repository uses 'master', not 'main'
+        payload = {"ref": "master", "inputs": {"user_id": str(update.effective_user.id)}}
         
         async with httpx.AsyncClient() as client:
             try:
                 resp = await client.post(url, headers=headers, json=payload)
                 resp.raise_for_status()
                 logger.info(f"GitHub Action Dispatch Success: {resp.status_code}")
+                # Optional: Send a confirmation message? (Keeping it silent if success for cleaner UX)
             except Exception as e:
                 logger.error(f"Erro ao triggar GitHub Actions: {e}")
+                await update.message.reply_html(
+                    f"❌ <b>Erro no Servidor:</b> Não consegui disparar o pipeline.\n"
+                    f"<code>{str(e)[:100]}</code>"
+                )
     else:
         logger.warning("GITHUB_TOKEN não configurado. Impossível disparar o workflow background.")
+        await update.message.reply_html(
+            "⚠️ <b>Token não configurado:</b> O bot não tem permissão para disparar o GitHub Actions.\n"
+            "Verifique a variável <code>GITHUB_TOKEN</code> na Vercel."
+        )
 
 
 
@@ -73,9 +82,13 @@ async def handle_debug_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # 1. Checar variáveis de ambiente
     db_url = os.environ.get("DATABASE_URL", "❌ NÃO DEFINIDA")
-    enc_key = os.environ.get("ENCRYPTION_MASTER_KEY", "❌ NÃO DEFINIDA")
+    nvidia_ok = bool(os.environ.get("NVIDIA_API_KEY", "").strip())
+    groq_ok   = bool(os.environ.get("GROQ_API_KEY", "").strip())
+    gemini_ok = bool(os.environ.get("GEMINI_API_KEY", "").strip())
     lines.append(f"DATABASE_URL: <code>{'✅ definida' if 'postgresql' in db_url else db_url}</code>")
-    lines.append(f"ENCRYPTION_MASTER_KEY: <code>{'✅ definida' if enc_key != '❌ NÃO DEFINIDA' else enc_key}</code>\n")
+    lines.append(f"NVIDIA_API_KEY: <code>{'✅ definida' if nvidia_ok else '❌ ausente'}</code>")
+    lines.append(f"GROQ_API_KEY: <code>{'✅ definida' if groq_ok else '❌ ausente'}</code>")
+    lines.append(f"GEMINI_API_KEY: <code>{'✅ definida' if gemini_ok else '❌ ausente'}</code>\n")
 
     # 2. Testar conexão ao banco (via supabase-py SDK)
     try:
@@ -88,13 +101,15 @@ async def handle_debug_command(update: Update, context: ContextTypes.DEFAULT_TYP
         tb = traceback.format_exc()
         lines.append(f"❌ <b>Erro ao conectar ao banco:</b>\n<pre>{tb[-1000:]}</pre>")
 
-    # 3. Testar chave Gemini
+    # 3. Checar provedores LLM disponíveis
     try:
-        from src.bot.key_router import get_key
-        key = get_key("paid", user_id)
-        lines.append(f"✅ <b>Chave Gemini OK:</b> <code>{key[:8]}...</code>")
+        from src.bot.key_router import get_available_providers
+        providers = get_available_providers()
+        for name, ok in providers.items():
+            icon = "✅" if ok else "❌"
+            lines.append(f"{icon} <b>LLM {name.upper()}:</b> <code>{'configurado' if ok else 'sem chave'}</code>")
     except Exception as e:
-        lines.append(f"❌ <b>Erro na chave Gemini:</b> <code>{e}</code>")
+        lines.append(f"❌ <b>Erro ao checar LLMs:</b> <code>{e}</code>")
 
     await update.message.reply_html("\n".join(lines))
 

@@ -32,18 +32,26 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from reportlab.lib.colors import HexColor
 
-from src.bot.key_router import get_key
-
-
-CAREER_PATH = Path(__file__).parent.parent.parent / "data" / "career"
-
 
 def _get_gemini_client():
-    return genai.Client(api_key=get_key("paid"))
+    from src.db.client import get_vault_secret
+    api_key = os.getenv("GEMINI_API_KEY", "").strip() or get_vault_secret("GEMINI_API_KEY")
+    if not api_key:
+        raise EnvironmentError("GEMINI_API_KEY não configurada no ambiente nem no Vault.")
+    return genai.Client(api_key=api_key)
 
 
-def _load_career_profile() -> str:
-    """Load career profile from files or env vars (Railway scenario)."""
+def _load_career_profile(user_id: int | None = None) -> str:
+    """Load career profile from the database (multi-tenant) or local files (dev fallback)."""
+    if user_id is not None:
+        try:
+            from src.db.users import get_user
+            user = get_user(user_id)
+            if user and user.get("career_summary"):
+                return user["career_summary"]
+        except Exception:
+            pass
+    # Local fallback for dev
     parts = []
     if CAREER_PATH.exists():
         for f in sorted(CAREER_PATH.iterdir()):
@@ -53,9 +61,6 @@ def _load_career_profile() -> str:
         master = os.getenv("MASTER_PROFILE", "")
         if master:
             parts.append(master)
-        product_ops = os.getenv("PRODUCT_OPS_PROFILE", "")
-        if product_ops:
-            parts.append(f"## Competências de Product Ops\n{product_ops}")
     return "\n\n---\n\n".join(parts) if parts else ""
 
 
@@ -308,7 +313,7 @@ async def generate_cover_letter_pdf(bot, chat_id: int, job_id: str, user_id: int
         await bot.send_message(chat_id=chat_id, text="❌ Vaga não encontrada no banco.")
         return
 
-    career_profile = _load_career_profile()
+    career_profile = _load_career_profile(user_id)
     client = _get_gemini_client()
 
     prompt = COVER_LETTER_PROMPT.format(
@@ -367,7 +372,7 @@ async def generate_cv_pdf(bot, chat_id: int, job_id: str, user_id: int):
         await bot.send_message(chat_id=chat_id, text="❌ Vaga não encontrada no banco.")
         return
 
-    career_profile = _load_career_profile()
+    career_profile = _load_career_profile(user_id)
     client = _get_gemini_client()
 
     prompt = CV_PROMPT.format(

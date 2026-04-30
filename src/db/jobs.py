@@ -78,7 +78,7 @@ def upsert_job(scored_job, user_id: int) -> bool:
             """, (
                 job_id, user_id,
                 job.title, job.company, job.location, job.url,
-                (job.description or "")[:500],
+                (job.description or "")[:3000],
                 job.source,
                 scored_job.score, scored_job.llm_score, scored_job.verdict,
                 scored_job.seniority, scored_job.company_tier,

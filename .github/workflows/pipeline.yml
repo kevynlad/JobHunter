@@ -56,7 +56,7 @@ jobs:
           # System-level fallback keys — used ONLY for onboarding (new users without BYOK)
           GEMINI_FREE_API_KEY: ${{ secrets.GEMINI_FREE_API_KEY }}
           GEMINI_PAID_API_KEY: ${{ secrets.GEMINI_PAID_API_KEY }}
-          # Target user (optional — passed via workflow_dispatch from Telegram)
+           # Target user (optional — passed via workflow_dispatch from Telegram)
           TARGET_USER_ID: ${{ github.event.inputs.user_id }}
         run: |
           # If a specific user triggered this via Telegram, pass it down

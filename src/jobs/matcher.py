@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 
 from src.jobs.models import JobPosting, ScoredJob, SearchFilters
 from src.jobs.sources import get_all_sources
-from src.jobs.config import CAREER_PATHS as DEFAULT_CAREER_PATHS, LOCATIONS as DEFAULT_LOCATIONS, INCLUDE_REMOTE, MAX_DAYS_OLD, RESULTS_PER_QUERY, MIN_MATCH_SCORE, is_sp_metro_area
+from src.jobs.config import CAREER_PATHS as DEFAULT_CAREER_PATHS, LOCATIONS as DEFAULT_LOCATIONS, INCLUDE_REMOTE, MAX_DAYS_OLD, RESULTS_PER_QUERY, MIN_MATCH_SCORE
 import logging
 from src.rag.retriever import score_jobs_batch
 
@@ -198,16 +198,12 @@ def search_and_match(min_score: float = 0, user_id: int | None = None) -> list[S
     print(f"\n{'=' * 60}")
     print(f"  Total unique jobs across all paths: {len(unique_jobs)}")
 
-    # SP metro filter
-    before_filter = len(unique_jobs)
-    unique_jobs = [j for j in unique_jobs if is_sp_metro_area(j.location)]
-    rejected = before_filter - len(unique_jobs)
-    if rejected > 0:
-        print(f"  Location filter: {before_filter} -> {len(unique_jobs)} (removed {rejected} outside SP metro)")
+    # Localização agora é filtrada nativamente na string de busca pelos Sources
+    # Não aplicamos hardcode de SP aqui para suportar múltiplos usuários.
     print(f"{'=' * 60}")
     
     if not unique_jobs:
-        print("\nNo jobs found in SP metro area! Try adjusting location settings.")
+        print("\nNo jobs found! Try adjusting location settings or career paths.")
         return []
     
     # --- Step 5: Score each job against your career profile (Batch RAG) ---

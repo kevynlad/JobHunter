@@ -48,6 +48,14 @@ async def telegram_webhook(req: Request):
     """
     Endpoint that Telegram will hit with updates.
     """
+    # OWASP A01: Broken Access Control (Spoofing mitigation)
+    secret_token = req.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    expected_token = os.getenv("TELEGRAM_WEBHOOK_SECRET")
+    
+    if expected_token and secret_token != expected_token:
+        logger.warning(f"Unauthorized webhook attempt. Token mismatch.")
+        return Response(status_code=403, content="Unauthorized")
+
     global ptb_app
     if not ptb_app:
         logger.error("PTB App is not initialized.")

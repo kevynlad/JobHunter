@@ -1,24 +1,21 @@
 """
 =============================================================
-🌐 SOURCES.PY — Job Search API Integrations (Brazil-focused)
+🌐 SOURCES.PY — Job Scrapers (Brazil-focused)
 =============================================================
 
 WHAT DOES THIS FILE DO?
 -----------------------
-This file connects to job APIs to find real job postings.
-We use TWO sources:
+This file runs open-source scrapers to find real job postings.
+We currently use:
 
-1. JSearch (RapidAPI) — aggregates LinkedIn + Indeed + Glassdoor
-   → Free tier: 200 requests/month
+1. python-jobspy — Open-source scraper package
+   → Scrapes LinkedIn and Google Jobs directly
+   → 100% Free (No API keys required)
    → Supports Brazil location + date filter
 
-2. Arbeitnow — aggregates Greenhouse job boards
-   → Free, no API key needed
-   → Mostly European but some global roles
-
 HOW IT WORKS:
-  Your code calls search() → we call the API → 
-  API returns JSON → we convert to JobPosting objects
+  Your code calls search() → jobspy scrapes the sites → 
+  Returns DataFrame → we convert to JobPosting objects
 
 =============================================================
 """
@@ -44,17 +41,15 @@ def _make_id(source: str, raw_id: str) -> str:
 
 
 # =============================================================
-# SOURCE 1: JSEARCH (RapidAPI)
+# SOURCE 1: JobSpy (Open-Source Scraper)
 # 
 # This is our MAIN source. It aggregates jobs from:
 #   - LinkedIn
-#   - Indeed
-#   - Glassdoor
-#   - ZipRecruiter
-#   - and many more
+#   - Google Jobs
+#   - (Indeed is available but disabled for BR focus)
 #
-# Free tier: 200 requests/month (no credit card needed)
-# API docs: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
+# Free and unlimited, but requires careful rate-limit handling 
+# inherently managed by the jobspy library.
 # =============================================================
 
 class JobSpySource:
@@ -116,10 +111,10 @@ class JobSpySource:
 # HELPER: Get all sources
 # =============================================================
 
-def get_all_sources(rapidapi_key: str = "") -> list:
+def get_all_sources() -> list:
     """Get all configured job sources."""
     return [
-        JobSpySource(),                       # LinkedIn + Indeed + Glassdoor + ZipRecruiter
+        JobSpySource(),                       # LinkedIn + Google Jobs
     ]
 
 
@@ -135,11 +130,11 @@ if __name__ == "__main__":
     api_key = os.getenv("RAPIDAPI_KEY", "")
     
     print("=" * 60)
-    print("  JOB SEARCH — Testing APIs")
+    print("  JOB SEARCH — Testing Scraper")
     print("=" * 60)
     
-    # Test JSearch
-    print("\n--- Testing JobSpy (LinkedIn+Indeed+Glassdoor) ---")
+    # Test JobSpy
+    print("\n--- Testing JobSpy (LinkedIn+Google Jobs) ---")
     jobspy = JobSpySource()
     jobs = jobspy.search("Product Manager", location="São Paulo, Brazil", limit=3, days_old=7)
     print(f"Found {len(jobs)} jobs:")

@@ -35,7 +35,7 @@ def run_all_tenants():
     
     users = get_active_users()
     if not users:
-        logger.warning("Nenhum usuário ativo com chave do Gemini encontrado.")
+        logger.warning("Nenhum usuário ativo com perfil de carreira configurado encontrado.")
         return
         
     if target_user_id:

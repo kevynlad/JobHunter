@@ -16,8 +16,8 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
+import os
 from src.bot.tools import TOOL_DECLARATIONS, TOOL_EXECUTOR
-from src.bot.key_router import get_key, get_key_pool
 
 
 # Load career profile for system context
@@ -73,25 +73,23 @@ PERFIL DO USUÁRIO:
 """
 
 ONBOARDING_INSTRUCTIONS = """O usuário ainda não concluiu o onboarding. Guie-o naturalmente:
+1. TRIGGER INICIAL: Se o usuário enviar "[SISTEMA] Novo usuário...", dê as boas-vindas calorosas usando o nome dele e explique que você é o CareerBot, o assistente que vai ajudá-lo a encontrar a vaga ideal.
 
-1. CHAVES API: Se o usuário não tem chaves configuradas, explique de forma amigável:
-   - Chave GRATUITA: usada para buscar e indexar vagas (embeddings).
-   - Chave PAGA (opcional, mas recomendada): usada para análise profunda das vagas e conversa.
-   - Sem chave paga: o pipeline classifica apenas as Top 5 vagas (modo econômico).
+2. CHAVES API: Explique de forma amigável que você precisa das chaves Gemini dele para funcionar (BYOK):
+   - Chave GRATUITA: usada para busca e indexação (embeddings). [OBRIGATÓRIA]
+   - Chave PAGA (opcional): usada para análise profunda e chat mais inteligente.
    - Como obter: https://aistudio.google.com/app/apikey
    - Quando o usuário fornecer as chaves (formato AIza...), chame save_api_keys() imediatamente.
 
-2. PERFIL DE CARREIRA: Após as chaves, peça um resumo de carreira livre:
-   - Experiência e habilidades
-   - Tipos de vaga e áreas de interesse
-   - Preferências (remoto, híbrido, senioridade)
+3. PERFIL DE CARREIRA: Após as chaves estarem salvas, peça um resumo de carreira livre:
+   - Experiência, habilidades, tipos de vaga e preferências (remoto, senioridade).
    - Quando o usuário enviar o texto, chame update_career_profile() imediatamente.
 
-3. Seja acolhedor, direto e nunca exija use de /comandos.
+4. NUNCA exija o uso de /comandos. O usuário deve sentir que está conversando com um assistente humano.
 """
 
 READY_INSTRUCTIONS = """O usuário está configurado e ativo.
-Se em algum momento o usuário mencionar uma nova chave (AIza...) ou quiser atualizar seu perfil, use as ferramentas save_api_keys() ou update_career_profile() imediatamente.
+Se em algum momento o usuário quiser atualizar seu perfil, use a ferramenta update_career_profile() imediatamente.
 """
 
 
@@ -107,36 +105,22 @@ class CareerAgent:
         self._setup_model()
 
     def _setup_model(self):
-        """Initialize chat session system prompt and state."""
-        from src.bot.key_router import get_key_pool
+        """Initialize chat session with system prompt and Gemini client."""
         from src.db.users import get_user
 
-        # Determine onboarding state
         user = get_user(self.user_id)
         self.onboarding_step = (user or {}).get("onboarding_step", "new")
-        self.has_paid_key = bool((user or {}).get("gemini_paid_key"))
 
-        # Always use the paid key for chat; if missing, use free key (limited experience)
-        self.api_keys = get_key_pool("paid", self.user_id)
-        if not self.api_keys:
-            self.api_keys = get_key_pool("free", self.user_id)
-
-        # If still no user key at all, use system key ONLY for onboarding guidance
-        if not self.api_keys:
-            try:
-                from src.bot.key_router import _get_system_key
-                self.api_keys = [_get_system_key("free")]
-                self.onboarding_step = "new"  # Force onboarding mode
-            except ValueError:
-                pass
-
-        self.current_key_idx = 0
-
-        if not self.api_keys:
+        from src.db.client import get_vault_secret
+        
+        # Use system GEMINI_API_KEY for chat (central key, not BYOK)
+        api_key = os.getenv("GEMINI_API_KEY", "").strip() or get_vault_secret("GEMINI_API_KEY")
+        if not api_key:
             raise ValueError(
-                "Nenhuma chave Gemini disponível. Configure sua chave Gemini "
-                "e defina GEMINI_FREE_API_KEY no ambiente do sistema."
+                "GEMINI_API_KEY não configurada no ambiente nem no Supabase Vault. "
+                "Configure a variável de ambiente para o agente de chat funcionar."
             )
+        self.api_key = api_key
 
         career_profile = _load_career_profile(self.user_id)
         onboarding_instr = ONBOARDING_INSTRUCTIONS if not career_profile else READY_INSTRUCTIONS
@@ -148,8 +132,7 @@ class CareerAgent:
         self._get_client()
 
     def _get_client(self):
-        key = self.api_keys[self.current_key_idx]
-        self.client = genai.Client(api_key=key)
+        self.client = genai.Client(api_key=self.api_key)
 
     def _execute_tool(self, tool_name: str, tool_args: dict) -> str:
         """Execute a Function Calling tool and return the result."""
@@ -179,11 +162,10 @@ class CareerAgent:
             parts=[types.Part.from_text(text=user_message)]
         ))
 
-        max_attempts = len(self.api_keys)  # one try per key
+        max_attempts = 2  # 1 retry com backoff em caso de quota 429
         attempt = 0
 
         # Sliding window: keep only last 20 messages to prevent token explosion
-        # Always keep the current user message (last element) and up to 19 history items
         if len(self.history) > 20:
             self.history = self.history[-20:]
             
@@ -193,9 +175,8 @@ class CareerAgent:
 
         while attempt < max_attempts:
             attempt += 1
-            key_label = f"key {self.current_key_idx + 1}/{len(self.api_keys)}"
             try:
-                # Agentic loop — Reduce to 2 steps to respect Vercel Timeout (10-60s)
+                # Agentic loop — max 2 steps to respect Vercel Timeout (10-60s)
                 step_count = 0
                 max_steps = 2
 
@@ -203,7 +184,7 @@ class CareerAgent:
                     step_count += 1
 
                     response = await self.client.aio.models.generate_content(
-                        model="gemini-3.1-flash-lite-preview",
+                        model="gemini-2.0-flash-lite",
                         contents=self.history,
                         config=config,
                     )
@@ -216,11 +197,7 @@ class CareerAgent:
                     ]
 
                     if not tool_calls or step_count >= max_steps:
-                        final_text = response.text
-                        if getattr(self, "using_fallback", False) and not getattr(self, "_fallback_warned", False):
-                            self._fallback_warned = True
-                            final_text += "\n\n⚠️ <i>Aviso: Você está usando a cota cortesia do sistema. Configure sua própria chave Gemini pelo menu /set_key para pesquisas ilimitadas.</i>"
-                        return final_text
+                        return response.text
 
                     tool_parts = []
                     for call in tool_calls:
@@ -239,15 +216,12 @@ class CareerAgent:
 
             except Exception as e:
                 error_str = str(e)
-                # Log full error so Railway logs show the real cause
-                print(f"⚠️ [Agent] {key_label} error: {error_str[:300]}")
+                print(f"⚠️ [Agent] attempt {attempt}/{max_attempts} error: {error_str[:300]}")
 
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                    # Rotate to the next key
-                    self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
-                    self._get_client()
-                    # Clean history: remove everything added in this failed attempt
-                    # (pop back past the user message, then re-add it)
+                if ("429" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < max_attempts:
+                    import asyncio as _asyncio
+                    await _asyncio.sleep(30)
+                    # Reset history to last user message
                     while self.history:
                         popped = self.history.pop()
                         if popped.role == "user":
@@ -258,10 +232,9 @@ class CareerAgent:
                     ))
                     continue
                 else:
-                    # Non-quota error: surface it directly
                     return f"❌ Erro no agente: {error_str[:200]}"
 
-        return "❌ Cota excedida em todas as chaves. Tente em alguns minutos."
+        return "❌ Cota excedida. Tente em alguns minutos."
 
 
 # Global registry of agents per user (in-memory, resets on restart)

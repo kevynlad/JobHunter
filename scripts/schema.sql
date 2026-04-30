@@ -9,16 +9,17 @@ CREATE TABLE IF NOT EXISTS users (
     first_name          TEXT    NOT NULL DEFAULT '',
     username            TEXT    DEFAULT NULL,
 
-    -- BYOK: stored encrypted (AES-256 Fernet), never plaintext
-    gemini_free_key     TEXT    DEFAULT NULL,
-    gemini_paid_key     TEXT    DEFAULT NULL,  -- optional
-
-    -- Career profile (populated via /update_profile)
+    -- Career profile (populated via /set_profile)
     career_summary      TEXT    DEFAULT '',
     career_vectors      JSONB   DEFAULT NULL,   -- embeddings JSON
 
+    -- Per-user job search config (populated via /set_search)
+    -- NULL = use system defaults from src/jobs/config.py
+    -- Schema: {career_paths: [{name, queries[], weight}], locations: [], include_remote, max_days_old}
+    search_config       JSONB   DEFAULT NULL,
+
     -- State
-    onboarding_step     TEXT    DEFAULT 'new', -- new | keys_set | profile_set | ready
+    onboarding_step     TEXT    DEFAULT 'new', -- new | profile_set | ready
     is_active           BOOLEAN DEFAULT TRUE,
     created_at          TIMESTAMPTZ DEFAULT NOW(),
     updated_at          TIMESTAMPTZ DEFAULT NOW()

@@ -1,128 +1,121 @@
 """
 src/bot/key_router.py
-━━━━━━━━━━━━━━━━━━━━
-Multi-tenant Gemini API key router.
+━━━━━━━━━━━━━━━━━━━━━
+Central LLM Key Router — NVIDIA NIM + Groq
 
-BYOK STRICT MODE:
-  - If user_id is given, ONLY user keys from DB are returned.
-  - System keys (env vars) are ONLY used when user_id is None.
-  - If an established user has no key, raise KeyError with a clear message.
-    The pipeline must catch this and notify the user via Telegram.
+Seleciona qual provedor e chave usar com base no propósito da chamada.
 
-Tiers:
-  free  → embeddings (RAG), cheap batch inference
-  paid  → LLM job classification, chat, CV/cover letter generation
+Provedores disponíveis:
+  nvidia  → NVIDIA NIM API (Nemotron, Llama, etc.) — Free: 40 RPM
+  groq    → Groq API (Llama 3, Mixtral, Gemma) — Free: 30 RPM, ultra-rápido
+
+Uso típico:
+  client, model = get_llm_client("classify")
+  client, model = get_llm_client("chat")
+  client, model = get_llm_client("embed")
 """
+
 import os
 import logging
+from openai import AsyncOpenAI
+
+from src.db.client import get_vault_secret
 
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────
+# Modelos padrão por provedor e propósito
+# ─────────────────────────────────────────────────────────────
 
-class MissingUserKeyError(ValueError):
-    """Raised when an established user has not configured a required API key."""
-    def __init__(self, user_id: int, tier: str):
-        self.user_id = user_id
-        self.tier = tier
-        msg = (
-            f"Usuário {user_id} não tem chave '{tier}' configurada. "
-            "Configure sua chave pelo bot (ex.: 'Minha chave é AIza...')"
-        )
-        super().__init__(msg)
+_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+_GROQ_BASE_URL   = "https://api.groq.com/openai/v1"
+
+# Modelo escolhido por propósito
+_MODELS = {
+    # Classificação de vagas: raciocínio rápido + JSON obrigatório
+    "classify": {
+        "provider": "nvidia",
+        "model":    "nvidia/nemotron-3-nano-30b-a3b",
+    },
+    # Chat do bot / agente conversacional: rápido + fluente
+    "chat": {
+        "provider": "groq",
+        "model":    "llama-3.3-70b-versatile",
+    },
+    # Cover letter / escrita longa: qualidade alta
+    "write": {
+        "provider": "groq",
+        "model":    "llama-3.3-70b-versatile",
+    },
+    # Fallback genérico (se propósito não reconhecido)
+    "default": {
+        "provider": "nvidia",
+        "model":    "nvidia/nemotron-3-nano-30b-a3b",
+    },
+}
+
+# ─────────────────────────────────────────────────────────────
+# Cache de clientes (evita recriar a cada chamada)
+# ─────────────────────────────────────────────────────────────
+_clients: dict[str, AsyncOpenAI] = {}
 
 
-def get_key(tier: str = "paid", user_id: int | None = None) -> str:
+def _get_client(provider: str) -> AsyncOpenAI:
+    """Retorna (e cacheia) o AsyncOpenAI client para o provedor."""
+    if provider in _clients:
+        return _clients[provider]
+
+    if provider == "nvidia":
+        api_key = os.getenv("NVIDIA_API_KEY", "").strip() or get_vault_secret("NVIDIA_API_KEY")
+        if not api_key:
+            raise EnvironmentError("NVIDIA_API_KEY não encontrada no ENV nem no Vault.")
+        client = AsyncOpenAI(base_url=_NVIDIA_BASE_URL, api_key=api_key)
+
+    elif provider == "groq":
+        api_key = os.getenv("GROQ_API_KEY", "").strip() or get_vault_secret("GROQ_API_KEY")
+        if not api_key:
+            raise EnvironmentError("GROQ_API_KEY não encontrada no ENV nem no Vault.")
+        client = AsyncOpenAI(base_url=_GROQ_BASE_URL, api_key=api_key)
+
+    else:
+        raise ValueError(f"Provedor desconhecido: '{provider}'. Use 'nvidia' ou 'groq'.")
+
+    _clients[provider] = client
+    return client
+
+
+# ─────────────────────────────────────────────────────────────
+# API Pública
+# ─────────────────────────────────────────────────────────────
+
+def get_llm_client(purpose: str = "default") -> tuple[AsyncOpenAI, str]:
     """
-    Return the Gemini API key for the given tier and user.
+    Retorna (client, model_name) para o propósito solicitado.
 
-    BYOK STRICT MODE:
-      - user_id provided → ONLY use keys from the database.
-      - user_id is None  → use system env vars (pipeline admin / local dev only).
+    Propósitos disponíveis:
+      "classify" → NVIDIA NIM (Nemotron) — ideal para JSON estruturado
+      "chat"     → Groq (Llama 3) — rápido e conversacional
+      "write"    → Groq (Llama 3) — qualidade em escrita longa
+      "default"  → NVIDIA NIM (fallback genérico)
 
     Raises:
-      MissingUserKeyError: if user_id is given but the requested key is not set.
-      ValueError:          if no system key is found (user_id is None).
+      EnvironmentError: se a chave do provedor não estiver configurada.
     """
-    if user_id is not None:
-        try:
-            from src.db.users import get_user
-            user = get_user(user_id)
-        except Exception as e:
-            logger.error(f"Failed to fetch user {user_id} from DB: {e}")
-            raise MissingUserKeyError(user_id, tier) from e
+    config = _MODELS.get(purpose, _MODELS["default"])
+    provider = config["provider"]
+    model    = config["model"]
 
-        if not user:
-            raise MissingUserKeyError(user_id, tier)
-
-        if tier == "paid":
-            key = user.get("gemini_paid_key")
-            if key:
-                return key
-            # If no paid key, fall back to free key (with penalty applied in pipeline)
-            free_key = user.get("gemini_free_key")
-            if free_key:
-                logger.warning(
-                    f"User {user_id}: no paid key configured. "
-                    "Returning free key — pipeline should apply job limit penalty."
-                )
-                return free_key
-            raise MissingUserKeyError(user_id, "free or paid")
-
-        if tier == "free":
-            key = user.get("gemini_free_key")
-            if key:
-                return key
-            raise MissingUserKeyError(user_id, "free")
-
-        raise ValueError(f"Unknown tier: '{tier}'. Use 'free' or 'paid'.")
-
-    # No user_id → system context (admin scripts, local dev, initial bot contact)
-    return _get_system_key(tier)
+    client = _get_client(provider)
+    logger.debug(f"LLM Client: purpose={purpose} → {provider}/{model}")
+    return client, model
 
 
-def get_key_pool(tier: str = "free", user_id: int | None = None) -> list[str]:
+def get_available_providers() -> dict[str, bool]:
     """
-    Return a list of keys for the given tier.
-    Returns an empty list if no key is available (do NOT raise).
-    Used by the classifier's pool-rotation logic.
+    Retorna quais provedores estão configurados (têm chave).
+    Útil para o /debug command do bot.
     """
-    try:
-        key = get_key(tier, user_id)
-        return [key] if key else []
-    except (MissingUserKeyError, ValueError):
-        return []
-
-
-def user_has_paid_key(user_id: int) -> bool:
-    """
-    Returns True if the user has a dedicated paid key configured.
-    Used by the pipeline to decide whether to apply the job-limit penalty.
-    """
-    try:
-        from src.db.users import get_user
-        user = get_user(user_id)
-        return bool(user and user.get("gemini_paid_key"))
-    except Exception:
-        return False
-
-
-def _get_system_key(tier: str) -> str:
-    """
-    Read system-level API key from env vars.
-    ONLY for: admin scripts, local development, initial bot contact (onboarding).
-    NEVER called when a user_id is available in the pipeline.
-    """
-    if tier == "paid":
-        key = os.getenv("GEMINI_PAID_API_KEY", "").strip()
-        if key:
-            return key
-
-    if tier == "free":
-        key = os.getenv("GEMINI_FREE_API_KEY", "").strip()
-        if key:
-            return key
-
-    raise ValueError(
-        f"No system Gemini API key found for tier='{tier}'. "
-        "Set GEMINI_FREE_API_KEY / GEMINI_PAID_API_KEY in env vars."
-    )
+    return {
+        "nvidia": bool(os.getenv("NVIDIA_API_KEY", "").strip()),
+        "groq":   bool(os.getenv("GROQ_API_KEY", "").strip()),
+    }
