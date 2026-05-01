@@ -117,7 +117,11 @@ async def _classify_batch_async(scored_jobs: list, career_summary: str, max_clas
             )
         )
     
-    print(f"\\n  🤖 Classifying top {len(to_classify)} jobs in parallel via NVIDIA NIM ({NVIDIA_MODEL})...")
+    try:
+        _, _model_name = get_llm_client("classify")
+    except Exception:
+        _model_name = "LLM"
+    print(f"\n  🤖 Classifying top {len(to_classify)} jobs in parallel ({_model_name})...")
     start_time = time.time()
     
     results = await asyncio.gather(*tasks)

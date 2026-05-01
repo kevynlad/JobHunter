@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       user_id:
-        description: 'Specific User ID to run the pipeline for (Optional, leave blank for all active users)'
+        description: 'Specific User ID to run (optional — leave blank for all active users)'
         required: false
         type: string
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # 6 hours max as per specs
+    timeout-minutes: 360 # 6 hours max
 
     steps:
       - name: Checkout Code
@@ -31,31 +31,28 @@ jobs:
           set -eo pipefail
           echo "[$(date -u +'%H:%M:%S')] Upgrading pip..."
           python -m pip install --upgrade pip --progress-bar off
-          echo "[$(date -u +'%H:%M:%S')] Installing requirements (verbose)..."
+          echo "[$(date -u +'%H:%M:%S')] Installing requirements..."
           pip install --progress-bar off -r requirements.txt 2>&1
-          echo "[$(date -u +'%H:%M:%S')] ✅ Dependencies installed successfully."
+          echo "[$(date -u +'%H:%M:%S')] ✅ Dependencies installed."
 
       - name: Check Environment Health
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          DATABASE_URL:         ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
           PYTHONPATH=. python scripts/check_env.py
 
       - name: Run Pipeline
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          DATABASE_URL:         ${{ secrets.DATABASE_URL }}
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          # Target user (optional — passed via workflow_dispatch from Telegram)
-          TARGET_USER_ID: ${{ github.event.inputs.user_id }}
+          TELEGRAM_BOT_TOKEN:   ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TARGET_USER_ID:       ${{ github.event.inputs.user_id }}
         run: |
-          # If a specific user triggered this via Telegram, pass it down
           if [ ! -z "$TARGET_USER_ID" ]; then
-            echo "Running pipeline targeted for User ID: $TARGET_USER_ID"
+            echo "Running pipeline for User ID: $TARGET_USER_ID"
           fi
-          # Se não houver alvo, rodará para todos
           PYTHONPATH=. python scripts/github_worker.py

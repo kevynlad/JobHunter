@@ -1,9 +1,15 @@
 """
 scripts/check_env.py
 ━━━━━━━━━━━━━━━━━━━
-Diagnóstico estruturado do ambiente de execução do GitHub Actions.
-Reporta presença de secrets, conectividade TCP e resolução DNS.
-NUNCA imprime os valores reais das secrets.
+Diagnóstico do ambiente de execução do GitHub Actions.
+
+Arquitetura atual (V2 - Centralizada):
+  - LLM: NVIDIA NIM + Groq (chaves no Supabase Vault)
+  - Embeddings/RAG: Gemini gemini-embedding-001 (chave no Supabase Vault)
+  - DB: Supabase SDK (HTTPS) + psycopg2 (TCP direto)
+  - Sem BYOK, sem ENCRYPTION_MASTER_KEY
+
+NUNCA imprime os valores reais dos secrets.
 """
 
 import os
@@ -14,7 +20,6 @@ from datetime import datetime, timezone
 
 
 def ts():
-    """Timestamp UTC para logs estruturados."""
     return datetime.now(timezone.utc).strftime("%H:%M:%S")
 
 
@@ -48,23 +53,15 @@ def check_env():
     print("=" * 60)
 
     # ─────────────────────────────────────────────────────────
-    # SECTION 1: Environment Variables
+    # SECTION 1: Required Secrets (GitHub Actions)
     # ─────────────────────────────────────────────────────────
-    section("1. Environment Variables (Secrets)")
+    section("1. Environment Variables (GitHub Secrets)")
 
     required = {
-        "DATABASE_URL":          "Primary DB connection (Transaction Pooler preferred)",
-        "SUPABASE_URL":          "REST API URL for Supabase SDK",
-        "SUPABASE_SERVICE_KEY":  "Admin key for server-side Supabase access",
-        "ENCRYPTION_MASTER_KEY": "Fernet master key for BYOK user key decryption",
-        "TELEGRAM_BOT_TOKEN":    "Telegram Bot API token",
-    }
-
-    # Optional system-level fallback keys (used ONLY during onboarding for new users)
-    optional = {
-        "GEMINI_FREE_API_KEY":  "System fallback — onboarding only (new users w/ no BYOK key)",
-        "GEMINI_PAID_API_KEY":  "System fallback — onboarding only (optional, paid tier)",
-        "POSTGRES_URL":         "Fallback DB alias (set by Vercel-Supabase integration)",
+        "DATABASE_URL":         "PostgreSQL direct connection (Transaction Pooler port 6543)",
+        "SUPABASE_URL":         "REST API URL for Supabase SDK",
+        "SUPABASE_SERVICE_KEY": "Admin key — bypasses RLS (server-side only)",
+        "TELEGRAM_BOT_TOKEN":   "Telegram Bot API token",
     }
 
     any_missing = False
@@ -77,13 +74,10 @@ def check_env():
             any_missing = True
 
     info("")
-    info("Optional / System Fallback Keys (BYOK multi-tenant — not required for pipeline):")
-    for var, description in optional.items():
-        val = os.environ.get(var, "")
-        if val:
-            ok(f"  {var:<26} defined  (len={len(val)})  # {description}")
-        else:
-            warn(f"  {var:<26} not set  # {description}")
+    info("LLM/Embedding keys are loaded from Supabase Vault at runtime.")
+    info("  → NVIDIA_API_KEY  (key_router.py → NVIDIA NIM)")
+    info("  → GROQ_API_KEY    (key_router.py → Groq / Llama 3)")
+    info("  → GEMINI_API_KEY  (retriever.py  → gemini-embedding-001)")
 
     if any_missing:
         warn("One or more REQUIRED variables are missing. The pipeline WILL fail.")
@@ -95,32 +89,29 @@ def check_env():
     # ─────────────────────────────────────────────────────────
     section("2. Database URL Analysis")
 
-    db_url = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
+    db_url = os.environ.get("DATABASE_URL")
     if not db_url:
-        fail("No DB URL found (neither DATABASE_URL nor POSTGRES_URL). Cannot continue.")
+        fail("DATABASE_URL not set. Cannot continue.")
     else:
         try:
             parsed = urllib.parse.urlparse(db_url)
             host = parsed.hostname
             port = parsed.port or 5432
-            scheme = parsed.scheme
 
-            info(f"Scheme   : {scheme}")
+            info(f"Scheme   : {parsed.scheme}")
             info(f"Host     : {host}")
             info(f"Port     : {port}")
             info(f"DB Name  : {parsed.path.lstrip('/')}")
 
-            # Warn about common pool mismatches
             if port == 5432:
-                warn("Using direct connection port (5432). Recommended: Transaction Pooler port 6543 for serverless.")
+                warn("Direct connection (5432). Prefer Transaction Pooler port 6543 for GitHub Actions.")
             elif port == 6543:
-                ok("Using Transaction Pooler port (6543). Good for serverless.")
+                ok("Transaction Pooler port (6543). ✓")
 
-            # Check URL scheme compatibility (psycopg2 needs postgresql://)
-            if scheme == "postgres":
-                warn("Scheme is 'postgres://' — psycopg2 requires 'postgresql://'. May cause connection errors.")
-            elif scheme == "postgresql":
-                ok("Scheme is 'postgresql://'. Compatible with psycopg2.")
+            if parsed.scheme == "postgres":
+                warn("Scheme 'postgres://' — psycopg2 requires 'postgresql://'. May fail.")
+            elif parsed.scheme == "postgresql":
+                ok("Scheme 'postgresql://'. ✓")
 
         except Exception as e:
             fail(f"Could not parse DATABASE_URL: {e}")
@@ -128,27 +119,27 @@ def check_env():
     # ─────────────────────────────────────────────────────────
     # SECTION 3: TCP Connectivity
     # ─────────────────────────────────────────────────────────
-    section("3. TCP Connectivity to Database Host")
+    section("3. TCP Connectivity to Database")
 
     if db_url:
         try:
             parsed = urllib.parse.urlparse(db_url)
             host = parsed.hostname
             port = parsed.port or 5432
-            info(f"Attempting TCP connection to {host}:{port} (timeout=10s)...")
+            info(f"Attempting TCP to {host}:{port} (timeout=10s)...")
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(10)
             s.connect((host, port))
             s.close()
-            ok(f"TCP handshake to {host}:{port} successful. Network path is open.")
+            ok(f"TCP handshake to {host}:{port} succeeded. ✓")
         except socket.timeout:
-            fail(f"TCP connection to {host}:{port} timed out. Firewall or IP block?")
+            fail(f"TCP to {host}:{port} timed out. Firewall or IP block?")
         except socket.gaierror as e:
             fail(f"DNS resolution failed for '{host}': {e}")
         except Exception as e:
             fail(f"Connection error: {type(e).__name__}: {e}")
     else:
-        warn("Skipped (no DB URL).")
+        warn("Skipped (no DATABASE_URL).")
 
     # ─────────────────────────────────────────────────────────
     # SECTION 4: DNS Resolution for External APIs
@@ -156,38 +147,36 @@ def check_env():
     section("4. DNS Resolution for External APIs")
 
     apis = [
-        "api.telegram.org",
-        "generativelanguage.googleapis.com",
+        ("api.telegram.org",                   "Telegram Bot API"),
+        ("generativelanguage.googleapis.com",   "Gemini Embedding API"),
+        ("integrate.api.nvidia.com",            "NVIDIA NIM API"),
+        ("api.groq.com",                        "Groq API"),
     ]
-    if db_url:
-        try:
-            host = urllib.parse.urlparse(db_url).hostname
-            if host:
-                apis.insert(0, host)
-        except Exception:
-            pass
 
-    for host in apis:
+    for host, label in apis:
         try:
             ip = socket.gethostbyname(host)
-            ok(f"Resolved {host:<45} → {ip}")
+            ok(f"{host:<45} → {ip}  # {label}")
         except socket.gaierror as e:
-            fail(f"Could not resolve {host}: {e}")
+            fail(f"Could not resolve {host}  # {label}: {e}")
 
     # ─────────────────────────────────────────────────────────
-    # SECTION 5: Python path sanity check
+    # SECTION 5: Python Module Sanity
     # ─────────────────────────────────────────────────────────
-    section("5. Python Path & Module Sanity")
+    section("5. Python Module Sanity")
 
-    modules_to_check = [
-        ("psycopg2", "PostgreSQL driver"),
-        ("supabase", "Supabase SDK"),
-        ("telegram", "python-telegram-bot"),
-        ("google.genai", "Gemini AI SDK"),
-        ("cryptography", "Fernet encryption"),
-        ("jobspy", "JobSpy scraper"),
+    modules = [
+        ("psycopg2",      "PostgreSQL driver"),
+        ("supabase",      "Supabase SDK"),
+        ("telegram",      "python-telegram-bot"),
+        ("google.genai",  "Gemini AI SDK (embeddings)"),
+        ("openai",        "OpenAI-compatible client (NVIDIA NIM / Groq)"),
+        ("jobspy",        "JobSpy scraper"),
+        ("pandas",        "DataFrame processing"),
+        ("cryptography",  "Fernet (optional — legacy compat)"),
     ]
-    for mod, label in modules_to_check:
+
+    for mod, label in modules:
         try:
             __import__(mod)
             ok(f"{mod:<25} importable  # {label}")
