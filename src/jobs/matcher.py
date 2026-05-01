@@ -169,9 +169,7 @@ def search_and_match(min_score: float = 0, user_id: int | None = None) -> list[S
     print(f"  Paths: {len(career_paths)} career paths")
     print("=" * 60)
 
-    sources = get_all_sources(
-        rapidapi_key=os.getenv("RAPIDAPI_KEY", ""),
-    )
+    sources = get_all_sources()
 
     # Store per-path weight for score boosting
     path_weights: dict[str, float] = {
