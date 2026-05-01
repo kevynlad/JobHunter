@@ -7,6 +7,9 @@ python-telegram-bot[job-queue]>=21.0
 # Gemini AI (new SDK) - used for chat, classification, AND embeddings
 google-genai>=1.0.0
 
+# OpenAI SDK (used for NVIDIA NIM and Groq integration)
+openai>=1.0.0
+
 # PDF generation
 reportlab>=4.0.0
 
