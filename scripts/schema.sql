@@ -56,19 +56,24 @@ CREATE TABLE IF NOT EXISTS jobs (
     applied_at      TIMESTAMPTZ DEFAULT NULL,
     notes           TEXT    DEFAULT '',
 
-    -- Generated docs
-    cover_letter_text TEXT  DEFAULT '',
-    cover_letter_pdf  BYTEA DEFAULT NULL,
-    cv_pdf            BYTEA DEFAULT NULL,
+  -- Generated docs
+  cover_letter_text TEXT DEFAULT '',
+  cover_letter_pdf BYTEA DEFAULT NULL,
+  cv_pdf BYTEA DEFAULT NULL,
 
-    PRIMARY KEY (job_id, user_id)
+  -- Embedding cache (avoids re-embedding same descriptions across runs)
+  description_hash TEXT DEFAULT NULL,
+  description_embedding JSONB DEFAULT NULL,
+
+  PRIMARY KEY (job_id, user_id)
 );
 
 -- ── INDEXES ──────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_jobs_user_id       ON jobs(user_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_status        ON jobs(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_jobs_llm_score     ON jobs(user_id, llm_score DESC);
-CREATE INDEX IF NOT EXISTS idx_jobs_first_seen    ON jobs(user_id, first_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_first_seen ON jobs(user_id, first_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_desc_hash ON jobs(user_id, description_hash);
 
 -- ── ROW LEVEL SECURITY ───────────────────────────────────────
 -- Users table: user can only see/edit their own row

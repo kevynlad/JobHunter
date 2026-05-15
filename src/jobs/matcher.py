@@ -33,6 +33,22 @@ from src.rag.retriever import score_jobs_batch
 
 logger = logging.getLogger(__name__)
 
+TITLE_RELEVANT_KEYWORDS = [
+    "analyst", "analista", "data", "dados", "product", "ops",
+    "operations", "operações", "operacoes", "business", "bi",
+    "intelligence", "manager", "gestor", "gerente", "owner",
+    "revenue", "strategy", "growth", "pm", "po", "analytics",
+    "coordenador", "consultant", "consultor", "specialist",
+    "especialista", "developer", "desenvolvedor", "engineer",
+    "engenheiro", "scientist", "cientista", "tech", "ti",
+    "sistemas", "software", "platform", "plataforma",
+]
+
+
+def _title_is_relevant(title: str) -> bool:
+    t = title.lower()
+    return any(k in t for k in TITLE_RELEVANT_KEYWORDS)
+
 
 def _get_user_search_config(user_id: int | None) -> dict:
     """
@@ -204,49 +220,71 @@ def search_and_match(min_score: float = 0, user_id: int | None = None) -> list[S
         print("\nNo jobs found! Try adjusting location settings or career paths.")
         return []
     
-    # --- Step 5: Score each job against your career profile (Batch RAG) ---
-    with_desc = sum(1 for j in unique_jobs if j.description and j.description.strip())
-    logger.info(f"📝 Descriptions: {with_desc}/{len(unique_jobs)} jobs have full text")
-    logger.info(f"🧠 Scoring {len(unique_jobs)} jobs against your career (Batch Mode)...")
-    
+    # --- Step 5: Pre-filter by title relevance (saves embedding API cost) ---
+    relevant_jobs = []
+    filtered_out_jobs = []
+    for job in unique_jobs:
+        if _title_is_relevant(job.title):
+            relevant_jobs.append(job)
+        else:
+            filtered_out_jobs.append(job)
+
+    logger.info(f"🔍 Title pre-filter: {len(unique_jobs)} → {len(relevant_jobs)} relevant ({len(filtered_out_jobs)} filtered out)")
+
+    # --- Step 6: Score relevant jobs against your career profile (Batch RAG) ---
+    with_desc = sum(1 for j in relevant_jobs if j.description and j.description.strip())
+    logger.info(f"📝 Descriptions: {with_desc}/{len(relevant_jobs)} jobs have full text")
+    logger.info(f"🧠 Scoring {len(relevant_jobs)} jobs against your career (Batch Mode)...")
+
     # Prepare data for batch scoring
     jobs_to_score = []
-    for job in unique_jobs:
+    for job in relevant_jobs:
         text_to_score = job.description if job.description and job.description.strip() else job.title
         jobs_to_score.append({"id": job.id, "text": text_to_score})
-    
+
     # Call batch API
-    try:
-        batch_results = score_jobs_batch(jobs_to_score, user_id=user_id)
-    except Exception as e:
-        logger.error(f"❌ RAG Batch scoring failed: {e}", exc_info=True)
-        batch_results = []
-        
+    batch_results = []
+    if jobs_to_score:
+        try:
+            batch_results = score_jobs_batch(jobs_to_score, user_id=user_id)
+        except Exception as e:
+            logger.error(f"❌ RAG Batch scoring failed: {e}", exc_info=True)
+
     batch_map = {res["id"]: res for res in batch_results}
-    
+
     scored_jobs: list[ScoredJob] = []
-    for job in unique_jobs:
+
+    # Scored relevant jobs (from embedding API)
+    for job in relevant_jobs:
         res = batch_map.get(job.id, {"score": 50, "interpretation": "RAG Error"})
 
-        # Boost score based on career path weight
         career_path_name = job_career_path.get(job.id, "Unknown")
         weight = path_weights.get(career_path_name, 1.0)
         base_score = res["score"]
 
-        # Missing description fallback
         if not job.description or not job.description.strip():
-            title_lw = job.title.lower()
-            strong_keywords = ["product", "ops", "analyst", "analista", "dados", "business", "data", "revenue", "bi", "intelligence", "gerente", "gestor"]
-            if any(k in title_lw for k in strong_keywords):
+            if _title_is_relevant(job.title):
                 base_score = max(base_score, 45.0)
                 res["interpretation"] = "Title Match (Missing desc)"
 
-        final_score = min(base_score * weight, 100.0)  # cap at 100
+        final_score = min(base_score * weight, 100.0)
 
         scored = ScoredJob(
             job=job,
             score=final_score,
             interpretation=res["interpretation"],
+            top_matches=[],
+            career_path=career_path_name,
+        )
+        scored_jobs.append(scored)
+
+    # Filtered-out jobs get score 0 (no embedding cost)
+    for job in filtered_out_jobs:
+        career_path_name = job_career_path.get(job.id, "Unknown")
+        scored = ScoredJob(
+            job=job,
+            score=0.0,
+            interpretation="Filtered by title",
             top_matches=[],
             career_path=career_path_name,
         )

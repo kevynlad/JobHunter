@@ -30,6 +30,7 @@ from src.jobs.matcher import search_and_match, print_results
 from src.jobs.classifier import classify_jobs_batch
 from src.db.jobs import upsert_job, get_unnotified_jobs, mark_notified, make_job_id
 from src.notify.telegram import send_telegram_message, send_job_cards_with_buttons
+from src.rag.retriever import flush_embedding_cache
 
 
 # Load environment variables
@@ -92,7 +93,7 @@ def run_pipeline(user_id: int) -> dict:
             # --- Step 2: Pre-filter by RAG score (≥SCORE_THRESHOLD%) ---
             rag_candidates = [sj for sj in all_scored if sj.score >= SCORE_THRESHOLD]
             logger.info(f"📊 RAG pre-filter: {len(all_scored)} → {len(rag_candidates)} candidates (≥{SCORE_THRESHOLD}%)")
-            
+
             if rag_candidates:
                 # --- Step 3: Classify with LLM (NVIDIA NIM / Groq) ---
                 logger.info(f"\n📌 Step 2: Deep analysis with LLM (via key_router)...")
@@ -101,11 +102,11 @@ def run_pipeline(user_id: int) -> dict:
                     max_classify=max_llm_jobs,
                     career_summary=career_summary,
                 )
-                
+
                 # --- Step 4: Combined ranking + Filtering ---
                 for sj in classified:
                     sj.combined_score = (sj.score * 0.4) + (sj.llm_score * 0.6)
-                
+
                 good_matches = [
                     sj for sj in classified
                     if sj.score >= SCORE_THRESHOLD and sj.llm_score >= LLM_SCORE_THRESHOLD
@@ -115,7 +116,6 @@ def run_pipeline(user_id: int) -> dict:
             else:
                 logger.info("No candidates passed RAG threshold.")
 
-        
         # --- Step 5: Save to PostgreSQL ---
         logger.info("\n💾 Saving results to database...")
         new_count = 0
@@ -124,7 +124,13 @@ def run_pipeline(user_id: int) -> dict:
             is_new = upsert_job(sj, user_id=user_id)
             if is_new:
                 new_count += 1
-        logger.info(f"  Saved {len(to_save)} jobs ({new_count} new)")
+        logger.info(f" Saved {len(to_save)} jobs ({new_count} new)")
+
+        # Flush embedding cache to DB (now that jobs exist via upsert)
+        try:
+            flush_embedding_cache(user_id)
+        except Exception as e:
+            logger.warning(f"⚠️ Embedding cache flush failed: {e}")
         
         # --- Step 6: Notify via Telegram (only NEW matches) ---
         unnotified = get_unnotified_jobs(user_id=user_id)

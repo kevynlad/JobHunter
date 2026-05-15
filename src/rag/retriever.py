@@ -274,52 +274,133 @@ def score_jobs_batch(jobs_data: list[dict], user_id: int | None = None) -> list[
     """
     Efficiently score a LARGE list of jobs against the user's career profile.
     Uses batch embeddings to reduce API calls by 100x.
+    Caches embeddings in DB to avoid re-embedding same descriptions across runs.
 
     Args:
         jobs_data: List of dicts with {"id": str, "text": str}
-        user_id:   Required for multi-tenant. Fetches vectors from DB.
+        user_id: Required for multi-tenant. Fetches vectors from DB.
 
     Returns:
-        List of dicts with {"id": str, "score": float, "interpretation": str}
+        List of dicts with {"id": str, "score": float, "interpretation": str, "embedding": list|None}
     """
     if not jobs_data:
         return []
 
-    texts = [j["text"][:3000] for j in jobs_data]
-
-    # 1. Batch Embed all job texts
-    logger.info(f"    📡 Requesting batch embeddings for {len(texts)} jobs (user={user_id})...")
-    try:
-        job_embeddings = _embed_batch(texts, user_id=user_id)
-    except Exception as e:
-        logger.error(f"    ❌ Batch embedding error: {e}")
-        return [{"id": j["id"], "score": 50, "interpretation": "⚪ RAG Error Fallback"} for j in jobs_data]
-
-    if len(job_embeddings) != len(texts):
-        logger.error(f"    ❌ Mismatch: requested {len(texts)} embeddings, got {len(job_embeddings)}")
-        return [{"id": j["id"], "score": 50, "interpretation": "⚪ RAG Mismatch Fallback"} for j in jobs_data]
-
-    # 2. Load career vectors for this user
+    # 2. Load career vectors for this user (do this early to fail fast)
     try:
         store = _get_store(user_id)
     except (FileNotFoundError, RuntimeError) as e:
-        logger.error(f"    ❌ Could not load career store for user {user_id}: {e}")
-        return [{"id": j["id"], "score": 50, "interpretation": "⚪ RAG Store Error"} for j in jobs_data]
+        logger.error(f" ❌ Could not load career store for user {user_id}: {e}")
+        return [{"id": j["id"], "score": 50, "interpretation": "⚪ RAG Store Error", "embedding": None} for j in jobs_data]
 
     career_embeddings = store["embeddings"]
 
-    # 3. Score each job
+    # 3. Check embedding cache (P3 optimization)
+    cached_embeddings: dict[str, list[float]] = {}
+    new_jobs_data: list[dict] = []
+    desc_hash_map: dict[str, str] = {}
+
+    if user_id is not None:
+        try:
+            from src.db.jobs import make_description_hash, get_cached_embeddings
+            for j in jobs_data:
+                desc_hash = make_description_hash(j["text"][:1000])
+                desc_hash_map[j["id"]] = desc_hash
+            all_hashes = list(desc_hash_map.values())
+            cached_embeddings = get_cached_embeddings(user_id, all_hashes)
+            logger.info(f" 🗄️ Embedding cache: {len(cached_embeddings)}/{len(jobs_data)} hits")
+        except Exception as e:
+            logger.warning(f" ⚠️ Cache lookup failed, embedding all: {e}")
+            cached_embeddings = {}
+
+    # Separate cached vs uncached
+    for j in jobs_data:
+        desc_hash = desc_hash_map.get(j["id"])
+        if desc_hash and desc_hash in cached_embeddings:
+            pass
+        else:
+            new_jobs_data.append(j)
+
+    # 4. Embed only uncached jobs
+    new_embeddings_map: dict[str, list[float]] = {}
+    if new_jobs_data:
+        texts = [j["text"][:3000] for j in new_jobs_data]
+        logger.info(f" 📡 Requesting batch embeddings for {len(texts)} NEW jobs (user={user_id}, {len(cached_embeddings)} cached)...")
+        try:
+            new_embeddings = _embed_batch(texts, user_id=user_id)
+        except Exception as e:
+            logger.error(f" ❌ Batch embedding error: {e}")
+            for j in new_jobs_data:
+                cached_embeddings[desc_hash_map.get(j["id"], "")] = []
+            new_embeddings = []
+
+        if len(new_embeddings) == len(texts):
+            for i, j in enumerate(new_jobs_data):
+                new_embeddings_map[j["id"]] = new_embeddings[i]
+
+    # 5. Merge cached + new embeddings and score
     results = []
-    for i, job_emb in enumerate(job_embeddings):
+    all_new_for_cache: list[tuple[str, str, list[float]]] = []
+
+    for j in jobs_data:
+        job_id = j["id"]
+        desc_hash = desc_hash_map.get(job_id)
+
+        # Try cache first
+        if desc_hash and desc_hash in cached_embeddings:
+            job_emb = cached_embeddings[desc_hash]
+            if not job_emb:
+                results.append({
+                    "id": job_id,
+                    "score": 50,
+                    "interpretation": "⚪ RAG Embed Error Fallback",
+                    "embedding": None,
+                })
+                continue
+        elif job_id in new_embeddings_map:
+            job_emb = new_embeddings_map[job_id]
+            if desc_hash and user_id is not None:
+                all_new_for_cache.append((job_id, desc_hash, job_emb))
+        else:
+            results.append({
+                "id": job_id,
+                "score": 50,
+                "interpretation": "⚪ RAG Error Fallback",
+                "embedding": None,
+            })
+            continue
+
         similarities = [_cosine_similarity(job_emb, c_emb) for c_emb in career_embeddings]
         score, interp = _calc_score(similarities)
         results.append({
-            "id": jobs_data[i]["id"],
+            "id": job_id,
             "score": score,
             "interpretation": interp,
+            "embedding": job_emb if job_id in new_embeddings_map else None,
         })
 
+    # 6. Save new embeddings to cache (best-effort, after jobs are upserted)
+    # Caller (pipeline.py) is responsible for calling flush_embedding_cache() after upsert_job()
+    if all_new_for_cache and user_id is not None:
+        _pending_cache.setdefault(user_id, []).extend(all_new_for_cache)
+
     return results
+
+
+_pending_cache: dict[int, list[tuple[str, str, list[float]]]] = {}
+
+
+def flush_embedding_cache(user_id: int):
+    if user_id not in _pending_cache or not _pending_cache[user_id]:
+        return
+    try:
+        from src.db.jobs import save_embeddings_batch
+        save_embeddings_batch(user_id, _pending_cache[user_id])
+        logger.info(f" 💾 Cached {len(_pending_cache[user_id])} new embeddings in DB")
+        _pending_cache[user_id] = []
+    except Exception as e:
+        logger.warning(f" ⚠️ Failed to cache embeddings: {e}")
+        _pending_cache[user_id] = []
 
 
 if __name__ == "__main__":

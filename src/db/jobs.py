@@ -6,6 +6,7 @@ All queries are scoped to user_id (RLS enforced at DB level as safety net).
 """
 
 import hashlib
+import json
 import logging
 from datetime import datetime
 
@@ -220,3 +221,42 @@ def get_job_by_id(job_id: str, user_id: int) -> dict | None:
                 return None
             cols = [d[0] for d in cur.description]
             return dict(zip(cols, row))
+
+
+def make_description_hash(text: str) -> str:
+    return hashlib.sha256(text[:1000].encode("utf-8")).hexdigest()[:16]
+
+
+def get_cached_embeddings(user_id: int, desc_hashes: list[str]) -> dict[str, list[float]]:
+    with get_conn(user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT description_hash, description_embedding
+                FROM jobs
+                WHERE user_id = %s
+                  AND description_hash = ANY(%s)
+                  AND description_embedding IS NOT NULL
+            """, (user_id, desc_hashes))
+            rows = cur.fetchall()
+    result = {}
+    for row in rows:
+        emb = row[1]
+        if isinstance(emb, str):
+            emb = json.loads(emb)
+        result[row[0]] = emb
+    return result
+
+
+def save_embeddings_batch(user_id: int, embeddings: list[tuple[str, str, list[float]]]):
+    if not embeddings:
+        return
+    with get_conn(user_id) as conn:
+        with conn.cursor() as cur:
+            cur.executemany("""
+                UPDATE jobs
+                SET description_hash = %s, description_embedding = %s
+                WHERE job_id = %s AND user_id = %s
+            """, [
+                (desc_hash, json.dumps(emb), job_id, user_id)
+                for job_id, desc_hash, emb in embeddings
+            ])
